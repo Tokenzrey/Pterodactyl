@@ -1,0 +1,46 @@
+# =============================================================================
+# .gitignore — pterodactyl-extensions
+# Build output, dependencies, dan artefak agent tidak pernah dilacak.
+# =============================================================================
+
+# ── Build output & lingkungan ───────────────────────────────────────────────
+/dist/
+/panel/
+node_modules/
+vendor/
+*.pteroext
+.env
+.env.*
+.*.env
+*.log
+
+# ── Agent tooling & instruksi (jangan commit) ──────────────────────────────
+CLAUDE.md
+AGENTS.md
+CONTEXT.md
+PRODUCT.md
+GLOSSARY.md
+.merkle-snapshot.json
+
+# ── Agent-generated planning / spec / grill / threat-model ──────────────────
+/plan/
+/docs/agents/
+/docs/adr/
+/.scratch/
+
+# ── Secrets & key ───────────────────────────────────────────────────────────
+*.pem
+*.key
+*.age
+*.sql
+*.sql.gz
+
+# ── OS / IDE / editor ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+*.tmp
+*.bak

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Stand-in for `ss` (select with PTERO_SS=...). -ltnu prints ss-all.txt (with a Netid column), -ltnp prints ss-tcp.txt
+# (no Netid column), and a "sport = :22" filter keeps the lines whose local port is 22.
+S=${FAKE_STATE:?}
+case "$*" in
+    *-ltnu*) cat "$S/ss-all.txt" 2>/dev/null ;;
+    *"sport = :22"*) awk '{n = split($4, a, ":"); if (a[n] == "22") print}' "$S/ss-tcp.txt" 2>/dev/null ;;
+    *) cat "$S/ss-tcp.txt" 2>/dev/null ;;
+esac
+exit 0

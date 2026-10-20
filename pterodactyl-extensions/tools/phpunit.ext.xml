@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Konfigurasi test extension. Meniru phpunit.xml Panel; jalur /ext-src dan /tools ada di dalam kontainer (lihat php.sh). -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/12.0/phpunit.xsd" bootstrap="/tools/bootstrap-ext.php" colors="true">
+  <testsuites>
+    <testsuite name="oauth-login">
+      <directory>/ext-src/oauth-login/tests</directory>
+    </testsuite>
+    <testsuite name="subdomain-manager">
+      <directory>/ext-src/subdomain-manager/tests</directory>
+    </testsuite>
+  </testsuites>
+  <php>
+    <env name="APP_ENV" value="testing"/>
+    <env name="CACHE_STORE" value="array"/>
+    <env name="DB_DATABASE" value="testing"/>
+    <env name="MAIL_MAILER" value="array"/>
+    <env name="QUEUE_CONNECTION" value="sync"/>
+    <env name="RECAPTCHA_ENABLED" value="(false)"/>
+    <env name="SESSION_DRIVER" value="array"/>
+    <env name="PTERODACTYL_EXTENSIONS_DIRECTORY" value="tests/Fixtures/extensions"/>
+  </php>
+</phpunit>

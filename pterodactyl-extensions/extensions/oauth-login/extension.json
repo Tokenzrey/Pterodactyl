@@ -1,0 +1,34 @@
+{
+    "$schema": "./node_modules/@pterodactyl/sdk/manifest.schema.json",
+    "id": "oauth-login",
+    "name": "OAuth Login",
+    "version": "1.0.0",
+    "requires": {
+        "panel": "^2.0.0-dev",
+        "sdk": ">=2.0.0-beta.6 <3.0",
+        "php": "^8.3"
+    },
+    "description": "Sign in to the Panel with Discord, GitHub or Google.",
+    "author": "surip",
+    "icon": "log-in",
+    "provider": "OauthLogin\\OauthLoginProvider",
+    "autoload": {
+        "OauthLogin\\": "src/"
+    },
+    "ui": {
+        "entry": "dist/client.js",
+        "mode": "native",
+        "prefix": "olg",
+        "screens": [
+            {
+                "id": "accounts",
+                "area": "account",
+                "path": "connected-accounts",
+                "nav": {
+                    "label": "Connected accounts",
+                    "icon": "link"
+                }
+            }
+        ]
+    }
+}

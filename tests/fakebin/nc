@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Fake nc for the game-port probe: `nc -w SECS HOST PORT </dev/null` succeeds only if something accepts the connection.
+secs=${2:-2}; host=${3:-127.0.0.1}; port=${4:-0}
+python3 -c "import socket,sys
+s=socket.socket(); s.settimeout(float(sys.argv[3]))
+try:
+    s.connect((sys.argv[1], int(sys.argv[2]))); s.close()
+except OSError:
+    sys.exit(1)" "$host" "$port" "$secs"

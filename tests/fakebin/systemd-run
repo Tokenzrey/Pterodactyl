@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Fake systemd-run for tests: records the call and marks the firewall dead-man switch as armed.
+S=${FAKE_STATE:?}
+echo "systemd-run $*" >>"$S/calls.log"
+touch "$S/rollback.armed"
+exit 0

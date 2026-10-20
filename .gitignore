@@ -1,0 +1,90 @@
+# =============================================================================
+# .gitignore — pterodactyl repo
+# Keeps the repo clean: only real project source is committed.
+# Agent tooling, generated plans, specs, setups, and local state are excluded.
+# =============================================================================
+
+# ── Agent tooling & AI assistant configs (never commit) ─────────────────────
+.codeartsdoer/
+.claude/
+.impeccable/
+.github/
+.merkle-snapshot.json
+CLAUDE.md
+AGENTS.md
+.cursorrules
+.cursorignore
+.aider*
+.continue*
+
+# ── Agent-generated planning / spec / design artifacts ──────────────────────
+# Glossaries, product docs, and context files produced by agent workflows
+CONTEXT.md
+PRODUCT.md
+GLOSSARY.md
+# Plan dirs: specs, grills, threat models, implementation rencana
+pterodactyl-extensions/plan/
+# Agent-authored docs (domain model, issue-tracker setup)
+pterodactyl-extensions/docs/agents/
+# Architecture Decision Records written by agents
+pterodactyl-extensions/docs/adr/
+# Local issue-tracker scratch space (referenced by CLAUDE.md)
+.scratch/
+pterodactyl-extensions/.scratch/
+
+# ── Secrets, env, and local configuration ───────────────────────────────────
+/config/deploy.env
+/config/*.restored.yml
+/secrets/
+/backups/
+/staging/
+/runtime/
+.env
+.env.*
+.*.env
+*.age
+*.pem
+*.key
+
+# ── Database dumps & archives ───────────────────────────────────────────────
+*.sql
+*.sql.gz
+*.tgz
+*.tar.gz
+*.zip
+*.pteroext
+
+# ── Build output & dependencies ─────────────────────────────────────────────
+/dist/
+/panel/
+node_modules/
+vendor/
+*.log
+
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ── OS artifacts ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── IDE / editor ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.tmp
+*.bak
+*.orig
+
+# ── Misc runtime / cache ────────────────────────────────────────────────────
+.cache/
+.tmp/
+*.lock

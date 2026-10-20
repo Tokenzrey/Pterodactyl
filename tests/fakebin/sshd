@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Fake sshd -T for tests: "port <n>" lines, or nothing when FAKE_SSHD_NONE is set.
+[[ -n ${FAKE_SSHD_NONE:-} ]] && exit 0
+[[ ${1:-} == -T ]] && printf 'port %s\naddressfamily any\n' "${FAKE_SSHD_PORT:-2222}"
+exit 0

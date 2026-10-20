@@ -1,0 +1,174 @@
+name: pterodactyl
+
+# Panel stack: Panel + MariaDB + Redis + Cloudflare Tunnel connector.
+# Wings is NOT here: it runs on the host as a systemd service (see docs/architecture.md, "Why Wings is not a container").
+# Do not run `docker compose` directly: variables and secrets are injected by `./ptero`
+# (use `./ptero compose <args>` for ad-hoc commands).
+
+x-base: &base
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  database:
+    <<: *base
+    image: ${MARIADB_IMAGE:?run through ./ptero}
+    command:
+      - --innodb-buffer-pool-size=${DB_BUFFER_POOL:-256M}
+      - --max-connections=60
+      - --performance-schema=OFF
+      - --skip-name-resolve
+    environment:
+      MARIADB_DATABASE: panel
+      MARIADB_USER: pterodactyl
+      MARIADB_PASSWORD: ${DB_PASSWORD:?run through ./ptero}
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"      # the root password is never stored anywhere
+    volumes:
+      - db_data:/var/lib/mysql
+    networks: [backend]                       # internal network: no route out, no published port
+    mem_limit: ${DB_MEM_LIMIT:-1g}
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  cache:
+    <<: *base
+    image: ${REDIS_IMAGE:?run through ./ptero}
+    # The password goes into a config file on tmpfs, never into the process arguments.
+    command:
+      - sh
+      - -c
+      - printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis.conf && exec redis-server /tmp/redis.conf --appendonly yes
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?run through ./ptero}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?run through ./ptero}   # lets redis-cli authenticate without -a
+    user: "999:1000"                          # the image's own redis user; also required for cap_drop ALL to work on restart
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: ["/tmp"]
+    volumes:
+      - redis_data:/data
+    networks: [backend]
+    mem_limit: 256m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  panel:
+    <<: *base
+    image: ${PANEL_IMAGE:?run through ./ptero}
+    stop_grace_period: 90s                    # let queue jobs finish (upstream recommendation)
+    depends_on:
+      database: { condition: service_healthy }
+      cache: { condition: service_healthy }
+    environment:
+      APP_URL: https://${PANEL_FQDN:?run through ./ptero}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      APP_SERVICE_AUTHOR: ${ADMIN_EMAIL:?run through ./ptero}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_ENVIRONMENT_ONLY: "false"           # settings (mail, captcha, 2FA...) are editable in the UI and stored in the DB
+      # Only the egress network's gateway (docker-proxy source for the tunnel) may set X-Forwarded-*
+      TRUSTED_PROXIES: ${PANEL_EDGE_SUBNET:?run through ./ptero}
+      DB_HOST: database
+      DB_PORT: "3306"
+      DB_DATABASE: panel
+      DB_USERNAME: pterodactyl
+      DB_PASSWORD: ${DB_PASSWORD:?run through ./ptero}
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      SESSION_CONNECTION: sessions
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: cache
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?run through ./ptero}
+      REDIS_QUEUE_RETRY_AFTER: "90"
+      # One replica runs both. Must be exactly "true" or "false".
+      QUEUE_WORKER_ENABLED: "true"
+      SCHEDULER_ENABLED: "true"
+      PTERODACTYL_TELEMETRY_ENABLED: "false"
+      PTERODACTYL_EXTENSIONS_ENABLED: ${PANEL_EXTENSIONS_ENABLED:-true}   # emergency kill-switch: false + ./ptero up if an extension breaks the Panel
+      APP_ACTIVITY_PRUNE_DAYS: ${ACTIVITY_PRUNE_DAYS:-365}                # audit trail retention (upstream default 90)
+      APP_ACTIVITY_HIDE_ADMIN: "false"                                    # server owners can see when staff touched their server
+      APP_BACKUP_DRIVER: wings                                            # server backups stay on the node (copy them off-box yourself)
+    ports:
+      - "127.0.0.1:${PANEL_BIND_PORT:-8081}:80"   # loopback only; the tunnel is the public path
+    volumes:
+      - panel_var:/app/var                    # .env with APP_KEY + HASHIDS_SALT: BACK UP (./ptero backup does)
+      - panel_nginx:/etc/nginx/http.d
+      - panel_logs:/app/storage/logs
+      - panel_extensions:/app/extensions
+      - panel_extension_assets:/app/public/assets/extensions
+    networks: [edge, backend]                 # edge: mail, and the Panel->Wings call through Cloudflare
+    mem_limit: ${PANEL_MEM_LIMIT:-1g}
+    pids_limit: 512
+
+  cloudflared:
+    <<: *base
+    profiles: [tunnel]
+    image: ${CLOUDFLARED_IMAGE:?run through ./ptero}
+    command: ["tunnel", "run"]                # the image entrypoint already adds --no-autoupdate
+    environment:
+      # `:-` on purpose: Compose interpolates inactive profiles too; ./ptero enforces the token before enabling the profile.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+      TUNNEL_METRICS: 127.0.0.1:${TUNNEL_METRICS_PORT:-20241}
+    # Host network so the tunnel can reach the loopback-only origins (Panel and Wings) without exposing either.
+    # cloudflared only makes outbound connections; it has no published ports.
+    network_mode: host
+    cap_drop: [ALL]
+    read_only: true
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 128m
+    pids_limit: 64
+
+  # The ONE public game entry point (profile `games`, GAMES_ENABLED=yes). It reads the hostname in the Minecraft handshake
+  # and forwards to that server's loopback port from runtime/mc-router/routes.json (written by `./ptero games sync`).
+  # A bare IP, an unknown name or an empty name matches nothing and the connection is closed.
+  mc-router:
+    <<: *base
+    profiles: [games]
+    image: ${MCROUTER_IMAGE:?run through ./ptero}
+    network_mode: host                        # listens on the public interface; reaches the servers on 127.0.0.1
+    environment:
+      PORT: ${GAMES_PORT:-25565}
+      ROUTES_CONFIG: /routes/routes.json
+      ROUTES_CONFIG_WATCH: "true"
+      CONNECTION_RATE_LIMIT: ${GAMES_CONN_RATE:-10}
+    volumes:
+      - ./runtime/mc-router:/routes:ro        # the only bind mount in this file: a read-only table of hostnames
+    cap_drop: [ALL]
+    read_only: true
+    mem_limit: 128m
+    pids_limit: 128
+
+networks:
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${PANEL_EDGE_SUBNET:?run through ./ptero}
+  backend:
+    internal: true                            # no default route: MariaDB and Redis cannot reach the internet
+
+volumes:
+  db_data:
+  redis_data:
+  panel_var:
+  panel_nginx:
+  panel_logs:
+  panel_extensions:
+  panel_extension_assets:

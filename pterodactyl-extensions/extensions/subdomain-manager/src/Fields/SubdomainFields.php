@@ -1,0 +1,126 @@
+<?php
+
+declare(strict_types=1);
+
+namespace SubdomainManager\Fields;
+
+use Illuminate\Container\Attributes\CurrentUser;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Pterodactyl\Extensions\Fields;
+use Pterodactyl\Models\Server;
+use Pterodactyl\Models\User;
+use SubdomainManager\Jobs\SyncRecord;
+use SubdomainManager\Models\Record;
+use SubdomainManager\Rules\NameIsFree;
+use SubdomainManager\Rules\ValidLabel;
+use SubdomainManager\Support\SubdomainSettings;
+
+/**
+ * The "subdomain" fields on the admin server form: a label and the domain it goes under.
+ *
+ * save() only writes what the administrator asked for (status `pending`) and schedules the Cloudflare job for
+ * after the commit. It never talks to Cloudflare: that would hold the server transaction open on a network call
+ * and let a Cloudflare outage block saving a server (FR-S3).
+ */
+final class SubdomainFields extends Fields
+{
+    /**
+     * @return array<string, list<mixed>>
+     */
+    public function rules(?Server $server, SubdomainSettings $settings): array
+    {
+        return [
+            'label' => ['nullable', 'string', new ValidLabel($settings->reservedLabels()), new NameIsFree($server?->uuid)],
+            'domain' => ['nullable', 'string', 'required_with:label', Rule::in(array_keys($settings->domains()))],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return ['label' => 'subdomain label', 'domain' => 'domain'];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'domain.required_with' => 'Choose the domain the subdomain goes under.',
+            'domain.in' => 'That domain is not one of the configured domains.',
+        ];
+    }
+
+    /** Only root administrators may set subdomains (they decide who gets which name at the DNS provider). */
+    public function authorize(#[CurrentUser] User $admin): bool
+    {
+        return (bool) $admin->root_admin;
+    }
+
+    /**
+     * @return array<string, string|null>
+     */
+    public function values(Server $server): array
+    {
+        $record = Record::query()->where('server_uuid', $server->uuid)->first();
+        $removing = $record?->status === Record::DELETING;
+
+        return [
+            'label' => $record === null || $removing ? '' : $record->label,
+            'domain' => $record === null || $removing ? '' : $record->domain,
+            'status' => $record?->status,
+            'fqdn' => $record === null || $removing ? null : $record->fqdn(),
+            'error' => $record?->last_error,
+        ];
+    }
+
+    /** @param array{label?: string|null, domain?: string|null} $values */
+    public function save(Server $server, SubdomainSettings $settings, array $values): void
+    {
+        $label = (string) ($values['label'] ?? '');
+        $domain = strtolower((string) ($values['domain'] ?? ''));
+        $record = Record::query()->where('server_uuid', $server->uuid)->first();
+
+        if ($label === '') {
+            // An empty label removes the subdomain (FR-S1). Nothing to do when there never was one.
+            if ($record !== null && $record->status !== Record::DELETING) {
+                $record->update(['status' => Record::DELETING, 'last_error' => null, 'attempts' => 0]);
+                $this->dispatchAfterCommit($record);
+            }
+
+            return;
+        }
+
+        try {
+            if ($record === null) {
+                $record = Record::query()->create([
+                    'server_id' => $server->id,
+                    'server_uuid' => $server->uuid,
+                    'domain' => $domain,
+                    'label' => $label,
+                    'zone_id' => $settings->domains()[$domain] ?? str_repeat('0', 32),
+                    'status' => Record::PENDING,
+                ]);
+            } elseif ($record->domain !== $domain || $record->label !== $label || $record->status !== Record::ACTIVE) {
+                // A new name, or saving again to retry a failed one. Ids of records made for the old name stay on
+                // the row: the job removes them by id before making the new ones (FR-S6).
+                $record->update(['server_id' => $server->id, 'domain' => $domain, 'label' => $label, 'status' => Record::PENDING, 'last_error' => null, 'attempts' => 0]);
+            } else {
+                return;
+            }
+        } catch (UniqueConstraintViolationException) {
+            // Two administrators chose the same name at the same moment (EC-S1): the second one loses, and the whole save rolls back.
+            throw ValidationException::withMessages(['extensions.subdomain-manager.label' => 'This name is already used by another server.']);
+        }
+
+        $this->dispatchAfterCommit($record);
+    }
+
+    private function dispatchAfterCommit(Record $record): void
+    {
+        $id = $record->id;
+        DB::afterCommit(fn () => SyncRecord::dispatchSafely($id));
+    }
+}

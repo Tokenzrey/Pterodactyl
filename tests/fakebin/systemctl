@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Fake systemctl for tests: tracks only the `wings` unit under $FAKE_STATE/systemd.
+S=${FAKE_STATE:?}
+mkdir -p "$S/systemd"
+echo "systemctl $*" >>"$S/calls.log"
+args=() quiet=0
+for a in "$@"; do [[ $a == --quiet ]] && quiet=1; [[ $a == --* ]] || args+=("$a"); done
+cmd=${args[0]:-}
+unit=${args[1]:-}
+say() { ((quiet)) || echo "$1"; }
+case $cmd in
+    is-active)
+        [[ $unit == docker ]] && exit 0
+        if [[ -e $S/systemd/wings.active ]]; then say active; exit 0; fi
+        say inactive; exit 3 ;;
+    cat) [[ -n ${PTERO_SYSTEMD_DIR:-} && -f $PTERO_SYSTEMD_DIR/wings.service ]] && cat "$PTERO_SYSTEMD_DIR/wings.service" || exit 1 ;;
+    enable) [[ " $* " == *" --now "* ]] && touch "$S/systemd/wings.active"; touch "$S/systemd/wings.enabled" ;;
+    restart|start) touch "$S/systemd/wings.active" ;;
+    stop)
+        rm -f "$S/systemd/wings.active"
+        [[ " $* " == *ptero-firewall-rollback* ]] && rm -f "$S/rollback.armed" ;;
+    disable) : ;;
+    list-timers) [[ -e $S/rollback.armed ]] && echo "ptero-firewall-rollback.timer armed" ;;
+    daemon-reload) : ;;
+esac
+exit 0

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Fake curl for tests. URL -> HTTP status comes from $FAKE_STATE/http_map (lines: "glob code"; first match wins).
+# Downloads of wings_linux_* are served from $FAKE_WINGS_BIN. No network access.
+S=${FAKE_STATE:?}
+echo "curl $*" >>"$S/calls.log"
+url="" out="" write="" fail=0
+while (($#)); do
+    case $1 in
+        -o) out=$2; shift 2; continue ;;
+        -w) write=$2; shift 2; continue ;;
+        -m|--max-time|--proto) shift 2; continue ;;
+        -*f*) fail=1 ;;   # -f, -fsS, -fsSL, --fail
+        http*|file*) url=$1 ;;
+    esac
+    shift
+done
+code=200
+while read -r glob c; do
+    [[ -n $glob ]] || continue
+    # shellcheck disable=SC2254
+    case $url in $glob) code=$c; break ;; esac
+done <"$S/http_map" 2>/dev/null
+if [[ $url == *wings_linux_* ]]; then
+    [[ -n ${FAKE_WINGS_BIN:-} && -f $FAKE_WINGS_BIN ]] || exit 22
+    [[ -n $out ]] && cp "$FAKE_WINGS_BIN" "$out"
+    exit 0
+fi
+[[ -n $out && $out != /dev/null ]] && echo "fake body" >"$out"
+[[ $write == *http_code* ]] && printf '%s' "$code"
+if ((fail)) && ((code >= 400)); then exit 22; fi
+exit 0

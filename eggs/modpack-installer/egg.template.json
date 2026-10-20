@@ -1,0 +1,96 @@
+{
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "name": "Minecraft Modpack (CurseForge / Modrinth)",
+    "author": "noreply@example.com",
+    "description": "Installs a Minecraft modpack straight from Modrinth, CurseForge or a direct link, including the mod loader (Fabric, Quilt, Forge or NeoForge). Set the source and the pack's slug, install, accept the EULA, start. No Panel extension needed.",
+    "features": [
+        "eula",
+        "java_version",
+        "pid_limit"
+    ],
+    "docker_images": {
+        "Java 21": "ghcr.io/pterodactyl/yolks:java_21",
+        "Java 25": "ghcr.io/pterodactyl/yolks:java_25",
+        "Java 17": "ghcr.io/pterodactyl/yolks:java_17",
+        "Java 16": "ghcr.io/pterodactyl/yolks:java_16",
+        "Java 11": "ghcr.io/pterodactyl/yolks:java_11",
+        "Java 8": "ghcr.io/pterodactyl/yolks:java_8"
+    },
+    "file_denylist": [],
+    "startup": "java -Xms128M -XX:MaxRAMPercentage=80.0 {{JAVA_FLAGS}} -Dterminal.jline=false -Dterminal.ansi=true $(cat launch.args) nogui",
+    "config": {
+        "files": "{\n    \"server.properties\": {\n        \"parser\": \"properties\",\n        \"find\": {\n            \"server-ip\": \"0.0.0.0\",\n            \"server-port\": \"{{server.build.default.port}}\",\n            \"query.port\": \"{{server.build.default.port}}\"\n        }\n    }\n}",
+        "startup": "{\n    \"done\": \")! For help, type \"\n}",
+        "logs": "{}",
+        "stop": "stop"
+    },
+    "scripts": {
+        "installation": {
+            "script": "@INSTALL_SCRIPT@",
+            "container": "@INSTALL_CONTAINER@",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Modpack source",
+            "description": "Where the pack comes from: modrinth, curseforge, or url (a direct https link to a .mrpack or a server-pack .zip). CurseForge needs an API key configured by the administrator.",
+            "env_variable": "MODPACK_SOURCE",
+            "default_value": "modrinth",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:modrinth,curseforge,url"
+        },
+        {
+            "name": "Modpack ID",
+            "description": "Modrinth: the project slug (modrinth.com/modpack/<slug>). CurseForge: the slug (curseforge.com/minecraft/modpacks/<slug>) or numeric project id. url: the https link.",
+            "env_variable": "MODPACK_ID",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:500"
+        },
+        {
+            "name": "Modpack version",
+            "description": "Optional. Modrinth: version number or id. CurseForge: file id. Empty = newest release.",
+            "env_variable": "MODPACK_VERSION",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:100"
+        },
+        {
+            "name": "Minecraft version filter",
+            "description": "Optional. When the version above is empty, only consider pack versions for this Minecraft version (for example 1.20.1).",
+            "env_variable": "MODPACK_MC_VERSION",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:20|regex:/^[0-9][0-9.]*$/"
+        },
+        {
+            "name": "Extra Java flags",
+            "description": "Garbage-collector and tuning flags added to the start command. The heap is set to 80% of the server's memory automatically.",
+            "env_variable": "JAVA_FLAGS",
+            "default_value": "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+DisableExplicitGC",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:500"
+        },
+        {
+            "name": "CurseForge API key",
+            "description": "Set by the administrator (./ptero egg install). Hidden from server owners. Note: every egg variable is also in the game process's environment, so use a dedicated, low-privilege key.",
+            "env_variable": "CURSEFORGE_API_KEY",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": false,
+            "rules": "nullable|string|max:200"
+        }
+    ],
+    "tags": [
+        "minecraft"
+    ]
+}

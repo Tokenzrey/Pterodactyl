@@ -1,0 +1,46 @@
+{
+    "$schema": "./node_modules/@pterodactyl/sdk/manifest.schema.json",
+    "id": "unix",
+    "type": "theme",
+    "name": "Unix",
+    "version": "1.0.0",
+    "requires": {
+        "panel": "^2.0.0-dev",
+        "sdk": ">=2.0.0-beta.6 <3.0"
+    },
+    "description": "Terminal-style day/night theme",
+    "author": "surip",
+    "icon": "palette",
+    "theme": {
+        "extends": "classic",
+        "stylesheet": "dist/theme.css",
+        "schemes": [
+            "dark",
+            "light"
+        ],
+        "settings": {
+            "radius": {
+                "type": "number",
+                "label": "Corner radius",
+                "default": 0.25,
+                "min": 0,
+                "max": 1.5,
+                "step": 0.125,
+                "unit": "rem",
+                "token": "--radius"
+            },
+            "compact": {
+                "type": "toggle",
+                "label": "Compact spacing",
+                "default": false,
+                "attribute": "data-unix-compact"
+            },
+            "logo": {
+                "type": "image",
+                "label": "Logo",
+                "help": "Shown in place of the panel name.",
+                "token": "--brand-logo"
+            }
+        }
+    }
+}

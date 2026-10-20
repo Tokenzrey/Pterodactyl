@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# Fake `docker` for tests. Stateful, backed by directories under $FAKE_STATE. It never talks to a real daemon.
+# Volumes are plain directories; `docker run` executes the command in a sandbox copy of the mounts, so the real
+# tar/chown/grep logic of ptero runs against test data.
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S"/{running,health,volumes,image}
+echo "docker $*" >>"$S/calls.log"
+
+SERVICES=(database cache panel)
+
+declare -A IMGVAR=([database]=MARIADB_IMAGE [cache]=REDIS_IMAGE [panel]=PANEL_IMAGE [cloudflared]=CLOUDFLARED_IMAGE)
+
+compose_cmd() {
+    local profile_tunnel=0
+    while (($#)); do
+        case $1 in
+            -p|-f|--project-directory|--env-file) shift 2 ;;
+            --profile) [[ $2 == tunnel || $2 == '*' ]] && profile_tunnel=1; shift 2 ;;
+            *) break ;;
+        esac
+    done
+    local sub=$1; shift
+    case $sub in
+        version) [[ ${1:-} == --short ]] && echo "v2.29.0" || echo "Docker Compose version v2.29.0" ;;
+        ps)
+            local q=0 svc=""
+            while (($#)); do case $1 in -q) q=1 ;; --status) shift ;; -a) ;; *) svc=$1 ;; esac; shift; done
+            if ((q)); then [[ -e $S/running/$svc ]] && echo "fakeid-$svc"; exit 0; fi
+            ls "$S/running"; exit 0 ;;
+        pull) exit "${FAKE_PULL_RC:-0}" ;;
+        up)
+            local svcs=()
+            while (($#)); do case $1 in --wait-timeout) shift ;; -*) ;; *) svcs+=("$1") ;; esac; shift; done
+            ((${#svcs[@]})) || { svcs=("${SERVICES[@]}"); ((profile_tunnel)) && svcs+=(cloudflared); }
+            local s; for s in "${svcs[@]}"; do touch "$S/running/$s"; [[ -e $S/health/$s ]] || echo healthy >"$S/health/$s"; done
+            exit "${FAKE_UP_RC:-0}" ;;
+        stop) local s; for s in "$@"; do rm -f "$S/running/$s"; done; exit 0 ;;
+        down) rm -f "$S"/running/*; exit 0 ;;
+        logs) echo "fake log line for ${*: -1}"; exit 0 ;;
+        kill) exit 0 ;;
+        cp) exit 0 ;;
+        config) exit 0 ;;
+        run)
+            local all="$*"
+            if [[ $all == *"migrate:status"* ]]; then
+                local n; n=$(cat "$S/pending" 2>/dev/null || echo 0)
+                echo "  2014_10_12_000000_create_users_table ........ [1] Ran"
+                for ((i = 0; i < n; i++)); do echo "  2026_01_01_00000$i_pending_change ........ Pending"; done
+                exit 0
+            fi
+            if [[ $all == *"migrate --seed"* ]]; then
+                [[ ${FAKE_MIGRATE_RC:-0} == 0 ]] || exit "$FAKE_MIGRATE_RC"
+                echo 1 >"$S/db_migrated"
+                mkdir -p "$S/volumes/${FAKE_PROJECT:-pterodactyl}_panel_var"
+                [[ -s $S/volumes/${FAKE_PROJECT:-pterodactyl}_panel_var/.env ]] || printf 'APP_KEY=base64:FRESHKEY\nHASHIDS_SALT=salt\n' >"$S/volumes/${FAKE_PROJECT:-pterodactyl}_panel_var/.env"
+                echo "migrated" >>"$S/migrate.log"
+                exit 0
+            fi
+            exit 0 ;;
+        exec)
+            [[ $* == *tinker* ]] && { echo "egg imported: id 3"; exit 0; }
+            if [[ $* == *p:extension:list* ]]; then
+                echo "+----+------+---------+----+---------+-------+"; echo "| ID | Name | Version | UI | State   | Error |"; echo "+----+------+---------+----+---------+-------+"
+                [[ -f $S/ext.list ]] && awk -F'|' '{printf "| %-14s | %-10s | %-7s | yes | %-7s | %-5s |\n", $1, $1, $2, $3, $4}' "$S/ext.list"
+                echo "+----+------+---------+----+---------+-------+"; exit 0
+            fi
+            if [[ $* == *p:extension:install* ]]; then
+                [[ -z ${FAKE_EXT_FAIL:-} ]] || { echo "Extension failed its compatibility check" >&2; exit 1; }
+                all="$*"; f=${all#*p:extension:install }; f=${f%% *}; id=${f#/tmp/ptero-ext-}; id=${id%.*}
+                grep -v "^$id|" "$S/ext.list" 2>/dev/null >"$S/ext.tmp"; mv "$S/ext.tmp" "$S/ext.list" 2>/dev/null
+                echo "$id|$(cat "$S/ext_versions/$id" 2>/dev/null || echo 1.0.0)|enabled|-" >>"$S/ext.list"
+                [[ -f $S/theme.ids ]] || : >"$S/theme.ids"; [[ $id == unix* || $id == *theme* ]] && echo "$id" >>"$S/theme.ids"
+                echo "Installed $id - enabled."; exit 0
+            fi
+            if [[ $* == *p:theme:list* ]]; then
+                echo "+----+------+---------+----------+"; echo "| ID | Name | Extends | Status   |"; echo "+----+------+---------+----------+"
+                echo "| classic | Classic |         | built in |"
+                while read -r t; do [[ -n $t ]] && printf '| %-7s | %-7s | classic | %-8s |\n' "$t" "$t" "$([[ $(cat "$S/theme.active" 2>/dev/null) == "$t" ]] && echo active || echo inactive)"; done <"$S/theme.ids" 2>/dev/null
+                echo "+----+------+---------+----------+"; exit 0
+            fi
+            if [[ $* == *p:theme:activate* ]]; then
+                all="$*"; t=${all#*p:theme:activate }; t=${t%% *}
+                grep -qx "$t" "$S/theme.ids" 2>/dev/null || { echo "No such theme" >&2; exit 1; }
+                echo "$t" >"$S/theme.active"; exit 0
+            fi
+            [[ $* == *p:theme:reset* ]] && { rm -f "$S/theme.active"; exit 0; }
+            [[ $* == *chown* ]] && exit 0
+            local script="" arg0=""
+            while (($#)); do case $1 in -T) ;; sh) shift 2; script=$1; shift; arg0=${1:-}; break ;; *) ;; esac; shift; done
+            if [[ $script == *mariadb-dump* ]]; then
+                [[ -z ${FAKE_DUMP_FAIL:-} ]] || { echo "dump exploded" >&2; exit 2; }
+                cat "$S/db.sql" 2>/dev/null || echo "-- empty"
+                [[ -z ${FAKE_DUMP_TRUNCATE:-} ]] && echo "-- Dump completed on 2026-10-19 00:00:00"
+                exit 0
+            fi
+            if [[ $script == *"mariadb -N -B"* ]]; then
+                [[ $arg0 == *information_schema* ]] && { cat "$S/db_migrated" 2>/dev/null || echo 0; exit 0; }
+                exit 0
+            fi
+            if [[ $script == *'exec mariadb -u'* ]]; then   # import
+                [[ -z ${FAKE_IMPORT_FAIL:-} ]] || { cat >/dev/null; echo "import exploded" >&2; exit 1; }
+                cat >"$S/db_imported.sql"; cp "$S/db_imported.sql" "$S/db.sql"; echo 1 >"$S/db_migrated"; exit 0
+            fi
+            exit 0 ;;
+        *) exit 0 ;;
+    esac
+}
+
+run_cmd() { # docker run [--rm] [-e K=V] [-v SRC:DST[:ro]] IMAGE sh -c SCRIPT [ARGS...]
+    local envs=() mounts=()
+    while (($#)); do
+        case $1 in
+            --rm) shift ;;
+            --network) shift 2 ;;
+            -e) envs+=("$2"); shift 2 ;;
+            -v) mounts+=("$2"); shift 2 ;;
+            -*) shift ;;
+            *) break ;;
+        esac
+    done
+    shift   # image
+    [[ $1 == sh && $2 == -c ]] || { echo "fake docker run: unsupported command: $*" >&2; exit 99; }
+    local script=$3; shift 3
+    local sbx; sbx=$(mktemp -d)
+    local m src dst ro host
+    declare -a plan=()
+    for m in "${mounts[@]}"; do
+        src=${m%%:*}; local rest=${m#*:}; dst=${rest%%:*}; ro=0; [[ $rest == *:ro ]] && ro=1
+        if [[ $src == /* ]]; then host=$src; else host=$S/volumes/$src; mkdir -p "$host"; fi
+        mkdir -p "$sbx$dst"; cp -a "$host/." "$sbx$dst/" 2>/dev/null
+        plan+=("$host|$sbx$dst|$ro")
+    done
+    script=${script//\/ptero_/$sbx/ptero_}
+    local rc
+    ( for e in "${envs[@]}"; do export "$e"; done; cd "$sbx" && sh -c "$script" "$@" )
+    rc=$?
+    local p
+    for p in "${plan[@]}"; do
+        IFS='|' read -r host copy ro <<<"$p"
+        [[ $ro == 1 || $rc != 0 ]] || cp -a "$copy/." "$host/" 2>/dev/null
+    done
+    rm -rf "$sbx"
+    exit $rc
+}
+
+case ${1:-} in
+    compose) shift; compose_cmd "$@" ;;
+    info)
+        [[ ${FAKE_DOCKER_DOWN:-0} == 1 ]] && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
+        if [[ $* == *DockerRootDir* ]]; then echo "$S/dockerroot"; mkdir -p "$S/dockerroot"; fi
+        exit 0 ;;
+    version) echo "29.0.0"; exit 0 ;;
+    inspect)
+        id=${*: -1}; svc=${id#fakeid-}
+        case $* in
+            *State.Health*) cat "$S/health/$svc" 2>/dev/null || echo exited ;;
+            *Config.Image*) if [[ -s $S/image/$svc ]]; then cat "$S/image/$svc"; else v=${IMGVAR[$svc]:-}; echo "${!v}"; fi ;;
+        esac
+        exit 0 ;;
+    volume) [[ ${2:-} == inspect && -d $S/volumes/${3:-} ]] && exit 0 || exit 1 ;;
+    network)
+        case ${2:-} in
+            ls) echo netid1 ;;
+            inspect)
+                [[ $* == *pterodactyl_edge* ]] && exit 1     # our own network does not exist yet
+                if [[ $* == *pterodactyl_nw* ]]; then           # Wings' game network: present only when the test says so
+                    [[ -n ${FAKE_WINGS_NET_SUBNET:-} ]] || exit 1
+                    echo "$FAKE_WINGS_NET_SUBNET"; exit 0
+                fi
+                if [[ -n ${FAKE_OTHER_SUBNET:-} ]]; then        # another network that holds this subnet
+                    if [[ $* == *Name* ]]; then echo "other $FAKE_OTHER_SUBNET "; else echo "$FAKE_OTHER_SUBNET"; fi
+                    exit 0
+                fi
+                for n in ${FAKE_NETWORKS:-}; do echo "$n"; done ;;
+        esac
+        exit 0 ;;
+    ps) [[ -n ${FAKE_DOCKER_PS:-} ]] && printf '%s\n' "$FAKE_DOCKER_PS"; exit 0 ;;
+    run) shift; run_cmd "$@" ;;
+    *) exit 0 ;;
+esac

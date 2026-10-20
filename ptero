@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# ptero: install and operate Pterodactyl Panel (Docker) + Wings (systemd) behind a Cloudflare Tunnel.
+# Run ./ptero help. Documentation: README.md and docs/.
+set -u -o pipefail
+umask 077
+
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+    echo "ptero needs bash >= 4.4 (found ${BASH_VERSION})" >&2; exit 3
+fi
+
+PTERO_ROOT=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd -P)
+export PTERO_ROOT
+PTERO_VERSION=0.1.0
+
+# shellcheck source=lib/common.sh
+for _lib in common config preflight stack backup wings diag games firewall egg ext; do
+    # shellcheck disable=SC1090
+    source "$PTERO_ROOT/lib/$_lib.sh" || { echo "cannot load lib/$_lib.sh" >&2; exit 1; }
+done
+unset _lib
+
+# one private temp dir for the whole run, created here (not in a subshell) so the EXIT trap can remove it
+PTERO_TMP=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/ptero.XXXXXXXX") || { echo "cannot create a temp directory" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+ptero ${PTERO_VERSION}: Pterodactyl Panel + Wings behind a Cloudflare Tunnel
+
+First install
+  ./ptero init                     create config/deploy.env and generate secrets/ (never overwrites)
+  ./ptero tunnel set-token         store the Cloudflare tunnel token (hidden prompt)
+  ./ptero setup                    preflight, pull, database, migrate (fresh install only), start, health checks
+  ./ptero admin create             first administrator (interactive, password never on a command line)
+  ./ptero tunnel info              the two routes to add in the Cloudflare dashboard
+  sudo ./ptero wings install [--config FILE]     Wings binary + systemd unit (+ node config from the Panel)
+
+Daily
+  ./ptero status                   health of every component (exit 1 if degraded)
+  ./ptero verify                   public HTTPS path through Cloudflare
+  ./ptero logs [-f] [--tail N] [database|cache|panel|cloudflared|wings]
+  ./ptero up | down                start / stop containers (down keeps all data)
+  ./ptero preflight                host checks only (read-only)
+  ./ptero diagnose [--output FILE] redacted support report
+
+Panel extensions and theme (applied by setup from PANEL_EXTENSIONS / PANEL_THEME; only hash-pinned, reviewed packages)
+  ./ptero ext list | install [--no-backup]     what is locked / installed; re-apply the desired state (backup first)
+  ./ptero ext vet FILE                         look inside a package before you trust it (never installs)
+
+Security (a VPS: SSH is detected and kept open; a dead-man switch undoes a bad firewall)
+  ./ptero firewall plan            show the ufw rules it would add (read-only)
+  sudo ./ptero firewall apply      default-deny inbound; allow SSH + the game router port; then confirm from a new session:
+  sudo ./ptero firewall confirm
+  sudo ./ptero firewall egress install    keep game containers away from the host, LAN and cloud metadata (survives reboot)
+  ./ptero audit                    list everything reachable beyond loopback; exit 1 if unexpected
+
+Minecraft servers (GAMES_ENABLED=yes; docs/games.md)
+  ./ptero key set panel|curseforge|client store an API key (hidden prompt; client = ptlc_, verifies installs)
+  ./ptero egg install                    import/update the "Minecraft Modpack (CurseForge / Modrinth)" egg in the Panel
+  ./ptero game create --name N --source modrinth|curseforge|url --pack SLUG    plan, confirm, create, route <N>.GAMES_DOMAIN
+  ./ptero games sync|list|status|dns     hostname table for the router; one wildcard DNS record
+  sudo ./ptero games timer install       keep hostnames in sync with the Panel every 2 minutes
+
+Backup and change
+  ./ptero backup [--label NAME]
+  ./ptero restore [--yes] [--identity KEY] <backup>      replaces DB + APP_KEY after confirmation
+  ./ptero restore-config <backup>                        fill an empty checkout with config and secrets
+  ./ptero update [--check] [--yes]                       backup, pull pinned images, migrate, restart
+  sudo ./ptero wings update | configure FILE | status | logs
+
+Other
+  ./ptero compose <args>           docker compose with the right project, env and secrets
+  ./ptero version | help
+
+Global flag: --yes answers confirmations (needed when there is no terminal).
+Exit codes: 0 ok, 1 failure, 2 usage, 3 preflight/config invalid, 4 refused for safety.
+EOF
+}
+
+# --yes is accepted anywhere
+ARGS=()
+for _a in "$@"; do
+    if [[ $_a == --yes || $_a == -y ]]; then PTERO_YES=1; else ARGS+=("$_a"); fi
+done
+export PTERO_YES=${PTERO_YES:-0}
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
+cmd=${1:-help}
+shift || true
+case $cmd in
+    help|-h|--help) usage ;;
+    version|--version) echo "ptero $PTERO_VERSION" ;;
+    init) cmd_init ;;
+    setup) cmd_setup ;;
+    up) cmd_up ;;
+    down) cmd_down ;;
+    status) cmd_status ;;
+    verify) cmd_verify ;;
+    logs) cmd_logs "$@" ;;
+    admin) [[ ${1:-} == create ]] || die "usage: ./ptero admin create" $EX_USAGE; cmd_admin_create ;;
+    tunnel) cmd_tunnel "$@" ;;
+    preflight)
+        load_config || exit $EX_PREFLIGHT
+        validate_config || report_verrors
+        export_stack_env
+        preflight || exit $EX_PREFLIGHT ;;
+    backup) cmd_backup "$@" ;;
+    restore) cmd_restore "$@" ;;
+    restore-config) cmd_restore_config "$@" ;;
+    update) cmd_update "$@" ;;
+    wings) cmd_wings "$@" ;;
+    diagnose) cmd_diagnose "$@" ;;
+    firewall) cmd_firewall "$@" ;;
+    audit) cmd_audit ;;
+    egg) cmd_egg "$@" ;;
+    ext) cmd_ext "$@" ;;
+    key) cmd_key "$@" ;;
+    games) cmd_games "$@" ;;
+    game) cmd_game "$@" ;;
+    compose) prepare 0; compose "$@" ;;
+    *) err "unknown command: $cmd"; usage >&2; exit $EX_USAGE ;;
+esac

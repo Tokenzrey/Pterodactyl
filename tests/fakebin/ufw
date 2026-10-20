@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Fake ufw for tests. State under $FAKE_STATE: ufw.active (exists = enabled), ufw.rules (one rule per line), ufw.log (every call).
+S=${FAKE_STATE:?}
+echo "ufw $*" >>"$S/ufw.log"
+case ${1:-} in
+    status)
+        if [[ -e $S/ufw.active ]]; then echo "Status: active"; echo "To                         Action      From"; sed 's/^allow //; s/^limit //; s/$/   ALLOW   Anywhere/' "$S/ufw.rules" 2>/dev/null
+        else echo "Status: inactive"; fi ;;
+    allow|limit)
+        [[ -z ${FAKE_UFW_FAIL:-} ]] || { echo "ERROR: Bad port" >&2; exit 1; }
+        [[ -n ${FAKE_UFW_DROP_RULES:-} ]] || echo "$*" >>"$S/ufw.rules" ;;
+    default) : ;;
+    --force) [[ ${2:-} == enable ]] && touch "$S/ufw.active"; [[ ${2:-} == disable ]] && rm -f "$S/ufw.active" ;;
+esac
+exit 0

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Fake getent for tests: every hostname resolves (no DNS in tests).
+[[ ${1:-} == hosts ]] && echo "203.0.113.10 ${2:-host}"
+exit 0

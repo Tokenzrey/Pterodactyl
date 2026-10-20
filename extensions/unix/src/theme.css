@@ -1,0 +1,101 @@
+@import '@pterodactyl/sdk/theme-entry.css';
+
+/* System monospace only: no webfont request. */
+@theme {
+    --font-sans: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+    --font-header: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* Both schemes */
+:root {
+    --radius: 0.25rem;
+}
+
+/* NIGHT: phosphor (first scheme in extension.json = default) */
+.dark {
+    --color-scheme: dark;
+    --background: oklch(0.16 0.012 150);
+    --foreground: oklch(0.86 0.08 145);
+    --card: oklch(0.2 0.014 150);
+    --card-foreground: oklch(0.86 0.08 145);
+    --popover: oklch(0.24 0.016 150);
+    --popover-foreground: oklch(0.88 0.07 145);
+    --muted: oklch(0.24 0.015 150);
+    --muted-foreground: oklch(0.68 0.04 150);
+    --border: oklch(0.32 0.03 150);
+    --input: oklch(0.2 0.014 150);
+    --input-border: oklch(0.36 0.04 150);
+    --ring: oklch(0.75 0.15 145);
+    --primary: oklch(0.8 0.17 145);
+    --primary-foreground: oklch(0.16 0.012 150);
+    --secondary: oklch(0.26 0.02 150);
+    --secondary-foreground: oklch(0.88 0.06 145);
+    --accent: oklch(0.75 0.15 145);
+    --accent-foreground: oklch(0.16 0.012 150);
+    --destructive: oklch(0.65 0.21 27);
+    --destructive-foreground: oklch(0.98 0 0);
+    --success: oklch(0.72 0.17 150);
+    --warning: oklch(0.82 0.15 85);
+    --chart-1: oklch(0.75 0.17 145);
+    --chart-2: oklch(0.72 0.12 230);
+    --chart-3: oklch(0.82 0.14 85);
+    --chart-4: oklch(0.72 0.16 310);
+    --chart-5: oklch(0.68 0.19 27);
+}
+
+/* DAY: paper terminal. Classic's light palette is provisional, so we set our own. */
+.light {
+    --color-scheme: light;
+    --background: oklch(0.975 0.008 95);
+    --foreground: oklch(0.25 0.02 150);
+    --card: oklch(0.99 0.005 95);
+    --card-foreground: oklch(0.25 0.02 150);
+    --popover: oklch(0.95 0.01 95);
+    --popover-foreground: oklch(0.25 0.02 150);
+    --muted: oklch(0.94 0.008 95);
+    --muted-foreground: oklch(0.45 0.02 150);
+    --border: oklch(0.87 0.012 95);
+    --input: oklch(0.99 0.005 95);
+    --input-border: oklch(0.8 0.015 95);
+    --ring: oklch(0.55 0.14 150);
+    --primary: oklch(0.45 0.14 150);
+    --primary-foreground: oklch(0.985 0.005 95);
+    --secondary: oklch(0.93 0.01 95);
+    --secondary-foreground: oklch(0.3 0.02 150);
+    --accent: oklch(0.5 0.14 150);
+    --accent-foreground: oklch(0.985 0.005 95);
+    --destructive: oklch(0.55 0.2 27);
+    --destructive-foreground: oklch(0.985 0 0);
+    --success: oklch(0.52 0.15 150);
+    --warning: oklch(0.7 0.15 80);
+    --chart-1: oklch(0.55 0.15 150);
+    --chart-2: oklch(0.6 0.12 230);
+    --chart-3: oklch(0.7 0.14 80);
+    --chart-4: oklch(0.58 0.17 310);
+    --chart-5: oklch(0.6 0.18 27);
+}
+
+/* The "Compact spacing" setting writes data-unix-compact on <html> (see extension.json) */
+[data-unix-compact='true'] {
+    --spacing: 0.2rem;
+}
+
+/* Console is a real terminal in BOTH schemes */
+:root {
+    --terminal-background: #0b0f0c;
+    --terminal-foreground: #c5c8c6;
+    --terminal-selection: #1f3a2a;
+    --terminal-selection-foreground: #d7ffe0;
+    --terminal-ansi-black: #1d1f21;   --terminal-ansi-bright-black: #969896;
+    --terminal-ansi-red: #cc6666;     --terminal-ansi-bright-red: #d54e53;
+    --terminal-ansi-green: #b5bd68;   --terminal-ansi-bright-green: #b9ca4a;
+    --terminal-ansi-yellow: #f0c674;  --terminal-ansi-bright-yellow: #e7c547;
+    --terminal-ansi-blue: #81a2be;    --terminal-ansi-bright-blue: #7aa6da;
+    --terminal-ansi-magenta: #b294bb; --terminal-ansi-bright-magenta: #c397d8;
+    --terminal-ansi-cyan: #8abeb7;    --terminal-ansi-bright-cyan: #70c0b1;
+    --terminal-ansi-white: #c5c8c6;   --terminal-ansi-bright-white: #eaeaea;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

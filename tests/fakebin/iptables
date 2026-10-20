@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Fake iptables for tests. Rules are lines "<chain> <spec...>" in $FAKE_STATE/ipt.rules; $FAKE_STATE/ipt.chain = DOCKER-USER exists.
+# ufw is emulated the way ufw 0.36 lays it out: INPUT jumps to ufw-before-input once ufw is enabled, and ufw-user-input
+# holds one ACCEPT per allowed tcp port (from $FAKE_STATE/ufw.rules, which the fake ufw writes).
+S=${FAKE_STATE:?}
+echo "iptables $*" >>"$S/calls.log"
+act=$1; shift
+case $act in
+    -S)
+        chain=${1:-}
+        if [[ -z $chain ]]; then cat "$S/ipt.rules" 2>/dev/null; exit 0; fi
+        if [[ $chain == INPUT && -e $S/ufw.active ]]; then echo "-P INPUT DROP"; echo "-A INPUT -j ufw-before-input"; exit 0; fi
+        if [[ $chain == ufw-user-input ]]; then
+            echo "-N ufw-user-input"
+            # "allow P/tcp ..." and "allow from SRC to any port P proto tcp ..." as ufw 0.36 writes them
+            awk '
+                $1 == "allow" && $2 ~ /\/tcp$/ { split($2, a, "/"); print "-A ufw-user-input -p tcp -m tcp --dport " a[1] " -j ACCEPT" }
+                $1 == "allow" && $2 == "from" {
+                    src = $3; port = ""; for (i = 1; i <= NF; i++) if ($i == "port") port = $(i + 1)
+                    if (port != "") print "-A ufw-user-input -p tcp -m tcp -s " src " --dport " port " -j ACCEPT"
+                }' "$S/ufw.rules" 2>/dev/null
+            exit 0
+        fi
+        [[ -e $S/ipt.chain ]] || exit 1
+        exit 0 ;;
+    -C) chain=$1; shift; grep -qxF "$chain $*" "$S/ipt.rules" 2>/dev/null; exit $? ;;
+    -I) chain=$1; shift; [[ ${1:-} =~ ^[0-9]+$ ]] && shift; echo "$chain $*" >>"$S/ipt.rules"; exit 0 ;;
+    -D) chain=$1; shift; grep -vxF "$chain $*" "$S/ipt.rules" >"$S/ipt.tmp" 2>/dev/null; mv "$S/ipt.tmp" "$S/ipt.rules"; exit 0 ;;
+    -N) [[ -e $S/ipt.chain ]] || touch "$S/ipt.chain"; exit 0 ;;
+esac
+exit 0
