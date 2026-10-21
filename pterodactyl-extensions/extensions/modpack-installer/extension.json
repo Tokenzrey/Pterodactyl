@@ -1,0 +1,35 @@
+{
+    "$schema": "./node_modules/@pterodactyl/sdk/manifest.schema.json",
+    "id": "modpack-installer",
+    "name": "Modpack Installer",
+    "version": "1.0.0",
+    "requires": {
+        "panel": "^2.0.0-dev",
+        "sdk": ">=2.0.0-beta.6 <3.0",
+        "php": "^8.3"
+    },
+    "description": "Search and install Minecraft modpacks from CurseForge and Modrinth.",
+    "author": "surip",
+    "icon": "package",
+    "provider": "ModpackInstaller\\ModpackInstallerProvider",
+    "autoload": {
+        "ModpackInstaller\\": "src/"
+    },
+    "ui": {
+        "entry": "dist/client.js",
+        "mode": "native",
+        "prefix": "mki",
+        "screens": [
+            {
+                "id": "modpacks",
+                "area": "server",
+                "path": "modpacks",
+                "nav": {
+                    "label": "Modpacks",
+                    "icon": "package"
+                },
+                "permission": ["ext.modpack-installer.install"]
+            }
+        ]
+    }
+}
