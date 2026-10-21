@@ -8,7 +8,8 @@ echo "the shipped lock file"
 python3 -B - <<'PY' && pass "extensions.lock is well formed, pinned and matches the local package" || fail "extensions.lock is well formed, pinned and matches the local package"
 import hashlib, re, sys, json, subprocess
 rows = [l.split() for l in open("extensions/extensions.lock") if l.strip() and not l.lstrip().startswith("#")]
-assert {r[0] for r in rows} == {"announcements", "custom-buttons", "unix"}, rows
+assert {r[0] for r in rows} == {"announcements", "custom-buttons", "unix", "redirect", "oauth-login", "subdomain-manager",
+    "player-manager", "minecraft-suite", "file-transfer", "modpack-installer", "multi-node-sync"}, rows
 for id_, sha, ver, src in rows:
     assert re.fullmatch(r"[0-9a-f]{64}", sha), id_
     assert re.fullmatch(r"\d+\.\d+\.\d+", ver), id_
@@ -19,7 +20,8 @@ for id_, sha, ver, src in rows:
         data = open("extensions/" + src[6:], "rb").read()
         assert hashlib.sha256(data).hexdigest() == sha, f"{id_}: local package does not match its pin"
         info = json.loads(subprocess.check_output([sys.executable, "-B", "lib/ext_vet.py", "info", "extensions/" + src[6:]]))
-        assert (info["id"], info["version"], info["type"]) == (id_, ver, "theme"), info
+        kind = "theme" if id_ == "unix" else "extension"
+        assert (info["id"], info["version"], info["type"]) == (id_, ver, kind), info
 PY
 out=$(python3 -B lib/ext_vet.py vet extensions/unix/unix.pteroext); rc=$?
 assert_eq 0 "$rc" "the unix theme package passes the vet tripwire"

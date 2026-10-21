@@ -234,7 +234,7 @@ def cmd_create(a):
     variables = rel(egg_full, "variables")
 
     probe_env = {"MODPACK_SOURCE": a.source, "MODPACK_ID": a.pack, "MODPACK_VERSION": a.version or "", "MODPACK_MC_VERSION": a.mc or "",
-                 "CURSEFORGE_API_KEY": os.environ.get("CURSEFORGE_API_KEY", "")}
+                 "LOADER_VERSION": a.loader_version or "", "CURSEFORGE_API_KEY": os.environ.get("CURSEFORGE_API_KEY", "")}
     print(f"probing {a.source}:{a.pack} ...", flush=True)
     try:
         info = load_installer().probe(probe_env)
@@ -273,6 +273,10 @@ def cmd_create(a):
 
     env = {v["attributes"]["env_variable"]: v["attributes"].get("default_value") or "" for v in variables}
     env.update({"MODPACK_SOURCE": a.source, "MODPACK_ID": a.pack, "MODPACK_VERSION": a.version or "", "MODPACK_MC_VERSION": a.mc or ""})
+    if a.loader_version:
+        if "LOADER_VERSION" not in env:
+            raise Fail("the egg has no LOADER_VERSION variable yet. Run: ./ptero egg install", 3)
+        env["LOADER_VERSION"] = a.loader_version
     owner_email = a.owner or os.environ.get("ADMIN_EMAIL", "")
     owner = next((u["attributes"]["id"] for u in panel.all("/api/application/users") if u["attributes"]["email"] == owner_email), None)
     if owner is None:
@@ -348,6 +352,7 @@ def main():
     c.add_argument("--version")
     c.add_argument("--mc")
     c.add_argument("--loader", choices=["fabric", "forge", "neoforge", "quilt"], help="optional: must match the pack (the pack decides)")
+    c.add_argument("--loader-version", help="optional: loader version for packs whose server files do not state it (e.g. 21.1.259)")
     c.add_argument("--owner")
     c.add_argument("--label", help="hostname label; default is the server name")
     c.add_argument("--port", type=int)

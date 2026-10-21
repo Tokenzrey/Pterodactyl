@@ -114,7 +114,7 @@ EOF
 }
 
 cmd_game() { # ./ptero game create --name N --source modrinth|curseforge|url --pack ID [--version V] [--mc 1.21.1] ...
-    [[ ${1:-} == create ]] || die "usage: ./ptero game create --name NAME --source {modrinth|curseforge|url} --pack SLUG [--version V] [--mc X] [--memory MB] [--disk MB] [--cpu %] [--port P] [--owner EMAIL] [--label L]" $EX_USAGE
+    [[ ${1:-} == create ]] || die "usage: ./ptero game create --name NAME --source {modrinth|curseforge|url} --pack SLUG [--version V] [--mc X] [--loader-version V] [--memory MB] [--disk MB] [--cpu %] [--port P] [--owner EMAIL] [--label L]" $EX_USAGE
     shift
     prepare 0
     [[ $(svc_state panel) == healthy ]] || die "the Panel is not running: ./ptero setup" $EX_REFUSED

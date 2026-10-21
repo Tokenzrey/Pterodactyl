@@ -119,6 +119,7 @@ Perintah ini memerlukan `GAMES_ENABLED=yes`. Panduan penuh: [Server Minecraft](g
 | `--version V` | tidak | rilis terbaru | versi atau id berkas pack |
 | `--mc VERSI` | tidak | dari pack | filter versi Minecraft |
 | `--loader {fabric\|forge\|neoforge\|quilt}` | tidak | dari pack | harus cocok dengan pack; pack yang menentukan |
+| `--loader-version V` | tidak | kosong | hanya untuk pack yang file servernya tidak menyebut versi loader (mis. `21.1.259` untuk ATM10); mengisi variabel `LOADER_VERSION` egg. Butuh egg yang sudah dipasang ulang (`./ptero egg install`) |
 | `--memory MB` | tidak | otomatis dari jumlah mod: kurang dari 120 mod = 4096, 120 sampai 199 = 6144, 200 atau lebih = 8192, jumlah tidak diketahui = 6144 | batas RAM; ditolak (kode 3) bila total RAM server di node melebihi kapasitas node |
 | `--disk MB` | tidak | `20480` | batas disk |
 | `--cpu PERSEN` | tidak | `400` | batas CPU |

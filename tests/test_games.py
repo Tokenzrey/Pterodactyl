@@ -258,6 +258,18 @@ class TestCreate(Base):
         self.assertIn("plan only", out)
         self.assertFalse([c for c in self.panel.calls if c[0] == "POST"], "a plan must not create anything")
 
+    def test_loader_version_goes_to_the_egg_variable(self):
+        self.panel.eggs[0]["vars"].append(("LOADER_VERSION", ""))
+        rc, out, err = self.create("--loader-version", "21.1.259", apply=True)
+        self.assertEqual(rc, 0, err)
+        body = [c for c in self.panel.calls if c[0] == "POST" and c[1] == "/api/application/servers"][0][2]
+        self.assertEqual(body["environment"]["LOADER_VERSION"], "21.1.259")
+
+    def test_loader_version_needs_the_new_egg(self):
+        rc, out, err = self.create("--loader-version", "21.1.259")
+        self.assertEqual(rc, 3)
+        self.assertIn("egg install", err + out)
+
     def test_apply_creates_allocation_server_and_route(self):
         rc, out, err = self.create(apply=True)
         self.assertEqual(rc, 0, err)
