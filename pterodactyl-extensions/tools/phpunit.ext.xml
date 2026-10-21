@@ -8,6 +8,21 @@
     <testsuite name="subdomain-manager">
       <directory>/ext-src/subdomain-manager/tests</directory>
     </testsuite>
+    <testsuite name="player-manager">
+      <directory>/ext-src/player-manager/tests</directory>
+    </testsuite>
+    <testsuite name="minecraft-suite">
+      <directory>/ext-src/minecraft-suite/tests</directory>
+    </testsuite>
+    <testsuite name="modpack-installer">
+      <directory>/ext-src/modpack-installer/tests</directory>
+    </testsuite>
+    <testsuite name="file-transfer">
+      <directory>/ext-src/file-transfer/tests</directory>
+    </testsuite>
+    <testsuite name="multi-node-sync">
+      <directory>/ext-src/multi-node-sync/tests</directory>
+    </testsuite>
   </testsuites>
   <php>
     <env name="APP_ENV" value="testing"/>

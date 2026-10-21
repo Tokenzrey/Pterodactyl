@@ -25,10 +25,24 @@ Dokumen perencanaan: [`plan/`](plan) (koreksi terhadap spesifikasi awal, spesifi
 2. Salin `dist/*.pteroext` ke Panel lalu `php artisan p:extension:install <berkas> --enable` (atau lewat halaman admin Extensions).
 3. Admin → Extensions → pengaturan masing-masing:
    - **OAuth Login**: centang penyedia, isi client ID/secret, putuskan `allow_registration` (bawaan mati), `allow_admin_login` (bawaan mati), kebijakan 2FA (bawaan: tolak akun 2FA).
-   - **Subdomain Manager**: token API Cloudflare dengan izin **Zone → DNS → Edit** terbatas ke zona Anda, daftar `domain:zone_id`, alamat IPv4 tujuan, SRV, TTL. Halaman **Subdomains** di menu admin memperlihatkan apakah pengaturan sudah lengkap dan bisa menguji koneksi ke tiap domain.
+   - **Subdomain Manager**: token API Cloudflare dengan izin **Zone → DNS → Edit** terbatas ke zona Anda, daftar `domain:zone_id`, alamat IPv4 tujuan, SRV port `0` (bawaan, satu port per server), TTL. Halaman **Subdomains** di menu admin memperlihatkan apakah pengaturan sudah lengkap dan bisa menguji koneksi ke tiap domain.
 4. Jalankan antrean dan scheduler Panel (`QUEUE_WORKER_ENABLED`/`SCHEDULER_ENABLED`) agar job DNS dan `subdomain-manager:reconcile` berjalan.
 5. Panel di belakang Cloudflare Tunnel: set `TRUSTED_PROXIES` benar, jika tidak semua pengunjung berbagi satu batas laju 20/menit pada rute OAuth.
 6. Nonaktifkan pemasangan lewat URL (`PTERODACTYL_EXTENSIONS_URL_INSTALLS_ENABLED`) bila tidak dipakai.
+
+## Beberapa server game (satu port per server)
+
+Setiap server game punya port sendiri yang diteruskan ke node Panel:
+
+1. Di Panel, beri tiap server alokasi utama dengan port berbeda, misalnya `25565` untuk server A dan `25566` untuk server B.
+2. Di router atau firewall, teruskan tiap port itu ke IP node Panel.
+3. Subdomain Manager: biarkan **SRV port** `0` (bawaan). Setiap record SRV memakai port alokasi utama servernya.
+4. Pemain mengetik `a.mc.domain` untuk server A dan `b.mc.domain` untuk server B di kolom alamat server. SRV mengarahkan ke port yang benar. Kalau SRV dimatikan, pemain mengetik port sendiri: `a.mc.domain:25565`.
+
+Catatan:
+- Jangan isi SRV port dengan angka tetap (misalnya 25565) untuk banyak server. Semua nama akan menuju port itu, dan pemain bisa masuk ke server yang salah tanpa error.
+- Jika alokasi utama sebuah server berubah (misalnya setelah dipindah), record SRV-nya tidak ikut berubah. Hapus lalu simpan ulang label server itu.
+- Install yang sudah dibuat dengan default lama (25565) tidak berubah sendiri. Record yang ada tetap menunjuk port lamanya. Ubah SRV port ke `0`, lalu simpan ulang label yang bersangkutan.
 
 ## Membangun dan menguji (lingkungan dev)
 
@@ -89,6 +103,7 @@ Tidak diuji: login nyata ke Discord/GitHub/Google dan Cloudflare nyata (butuh ak
 ## Batas yang diketahui
 
 - Mengganti `target_ipv4`, TTL, atau port SRV **tidak** memperbarui record yang sudah ada; hapus lalu simpan ulang label (atau ubah label) untuk membuat ulang.
+- Dengan SRV port `0`, record SRV memakai alokasi utama saat dibuat. Jika alokasi utama server berubah (misalnya setelah dipindah ke node atau port lain), record SRV lama tetap menunjuk port lama; hapus lalu simpan ulang label server itu.
 - Record yang dibuat Cloudflare tetapi ID-nya belum sempat tersimpan (proses mati tepat di antaranya) tampak sebagai konflik; hapus manual di Cloudflare.
 - `successful` penghapusan lewat antrean `sync` tidak punya retry (antrean nyata punya 5 percobaan); `reconcile` menutup celahnya.
 - Penautan akun lewat email mengandalkan verifikasi email di penyedia; admin dan akun 2FA ditolak secara bawaan karena alasan itu.

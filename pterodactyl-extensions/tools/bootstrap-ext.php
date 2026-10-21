@@ -34,6 +34,16 @@ spl_autoload_register(static function (string $class): void {
         'OauthLogin\\' => '/ext-src/oauth-login/src/',
         'SubdomainManager\\Tests\\' => '/ext-src/subdomain-manager/tests/',
         'SubdomainManager\\' => '/ext-src/subdomain-manager/src/',
+        'PlayerManager\\Tests\\' => '/ext-src/player-manager/tests/',
+        'PlayerManager\\' => '/ext-src/player-manager/src/',
+        'MinecraftSuite\\Tests\\' => '/ext-src/minecraft-suite/tests/',
+        'MinecraftSuite\\' => '/ext-src/minecraft-suite/src/',
+        'ModpackInstaller\\Tests\\' => '/ext-src/modpack-installer/tests/',
+        'ModpackInstaller\\' => '/ext-src/modpack-installer/src/',
+        'FileTransfer\\Tests\\' => '/ext-src/file-transfer/tests/',
+        'FileTransfer\\' => '/ext-src/file-transfer/src/',
+        'MultiNodeSync\\Tests\\' => '/ext-src/multi-node-sync/tests/',
+        'MultiNodeSync\\' => '/ext-src/multi-node-sync/src/',
     ];
     foreach ($roots as $prefix => $dir) {
         if (str_starts_with($class, $prefix)) {

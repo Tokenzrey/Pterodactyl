@@ -10,6 +10,7 @@
 #
 # usage: tools/e2e.sh        (jalankan tools/pack.sh <id> lebih dulu untuk kedua extension)
 . "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+with_test_lock
 need_docker
 
 PREFIX=ptero-ext-e2e
@@ -27,7 +28,7 @@ cleanup # sisa dari proses yang terputus (hanya nama di atas)
 
 version_of() { sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$PROJECT/extensions/$1/extension.json" | head -n1; }
 pkg() { echo "$PROJECT/dist/$1-$(version_of "$1").pteroext"; }
-for id in oauth-login subdomain-manager; do
+for id in oauth-login subdomain-manager player-manager minecraft-suite modpack-installer file-transfer multi-node-sync; do
     [[ -f $(pkg "$id") ]] || die "paket $(pkg "$id") belum ada; jalankan tools/pack.sh $id"
 done
 
@@ -81,7 +82,7 @@ art migrate --force >/dev/null || die "migrate gagal"
 art db:seed --force >/dev/null || die "seed gagal"
 
 echo "== memasang paket"
-for id in oauth-login subdomain-manager; do
+for id in oauth-login subdomain-manager player-manager minecraft-suite modpack-installer file-transfer multi-node-sync; do
     docker cp "$(pkg "$id")" "$PNL:/tmp/$id.pteroext"
     out=$(art p:extension:install "/tmp/$id.pteroext" --enable 2>&1) || { echo "$out"; die "pemasangan $id gagal"; }
     has "p:extension:install --enable $id" "$id" "$out"
@@ -89,6 +90,11 @@ done
 list=$(art p:extension:list 2>&1)
 has "oauth-login terdaftar" "oauth-login" "$list"
 has "subdomain-manager terdaftar" "subdomain-manager" "$list"
+has "player-manager terdaftar" "player-manager" "$list"
+has "minecraft-suite terdaftar" "minecraft-suite" "$list"
+has "modpack-installer terdaftar" "modpack-installer" "$list"
+has "file-transfer terdaftar" "file-transfer" "$list"
+has "multi-node-sync terdaftar" "multi-node-sync" "$list"
 lacks "tidak ada galat pemuatan" "failed" "$(echo "$list" | tr 'A-Z' 'a-z')"
 
 tables=$(php_run <<'PHP'
@@ -97,6 +103,13 @@ PHP
 )
 has "migrasi oauth-login berjalan" "ext_oauth_login_identities=true" "$tables"
 has "migrasi subdomain-manager berjalan" "ext_subdomain_manager_records=true" "$tables"
+
+tables2=$(php_run <<'PHP'
+foreach (['ext_modpack_installer_jobs', 'ext_multi_node_sync_migrations'] as $t) { echo $t, '=', json_encode(Illuminate\Support\Facades\Schema::hasTable($t)), ' '; }
+PHP
+)
+has "migrasi modpack-installer berjalan" "ext_modpack_installer_jobs=true" "$tables2"
+has "migrasi multi-node-sync berjalan" "ext_multi_node_sync_migrations=true" "$tables2"
 
 # Pengaturan memakai nilai PALSU yang sengaja tidak berguna; tidak ada rahasia nyata di sini.
 php_run <<'PHP' >/dev/null
@@ -109,6 +122,8 @@ use Pterodactyl\Services\Extensions\ExtensionSettingsRegistry;
 $registry = app(ExtensionSettingsRegistry::class);
 $registry->get('oauth-login')->update(['enabled_providers' => ['discord'], 'discord_client_id' => 'e2e-client-id', 'discord_client_secret' => 'E2E-FAKE-SECRET-NOT-REAL']);
 $registry->get('subdomain-manager')->update(['cloudflare_token' => 'e2e-fake-cloudflare-token', 'domains' => ['mc.e2e.test:0123456789abcdef0123456789abcdef'], 'target_ipv4' => '203.0.113.10']);
+$registry->get('modpack-installer')->update(['curseforge_api_key' => 'E2E-FAKE-CURSEFORGE-KEY']);
+$registry->get('multi-node-sync')->update(['s3_secret_key' => 'E2E-FAKE-S3-SECRET']);
 
 $admin = User::query()->forceCreate(['uuid' => (string) Illuminate\Support\Str::uuid(), 'username' => 'e2eadmin', 'email' => 'e2e-admin@example.test', 'name_first' => 'E2E', 'name_last' => 'Admin', 'password' => Hash::make(bin2hex(random_bytes(16))), 'root_admin' => true, 'language' => 'en']);
 $key = app(CreatesApiKeys::class)->create(ApiKey::TYPE_ACCOUNT, ['memo' => 'e2e', 'user_id' => $admin->id]);
@@ -206,6 +221,107 @@ code=$(pa -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1/api/admin/exte
 conn=$(pa -X POST http://127.0.0.1/api/admin/extensions/subdomain-manager/test)
 has "uji koneksi: tiap domain punya hasil" '"domain":"mc.e2e.test"' "$conn"
 lacks "uji koneksi tanpa token" "e2e-fake-cloudflare-token" "$conn"
+
+# ---------- player-manager dan minecraft-suite: izin, rute server, form admin, bundel
+# Tidak ada Wings dan server game di sini: yang dibuktikan hanya apa yang bisa dibuktikan di Panel nyata tanpa keduanya.
+echo "== player-manager dan minecraft-suite"
+perms=$(php_run <<'PHP'
+$all = app(Pterodactyl\Services\Extensions\ExtensionPermissionRegistry::class)->all();
+foreach (['ext.player-manager', 'ext.minecraft-suite'] as $g) { echo $g, '=', implode(',', array_keys($all[$g]['keys'] ?? [])), ' '; }
+PHP
+)
+has "izin player-manager terdaftar di Panel nyata" "ext.player-manager=read,kick,ban,op,deop" "$perms"
+has "izin minecraft-suite terdaftar di Panel nyata" "ext.minecraft-suite=read" "$perms"
+
+SRV=00000000-0000-4000-8000-000000000000 # server yang tidak ada: cukup untuk membuktikan rute dan penjaganya
+for path in player-manager/players minecraft-suite/health; do
+    has "rute server menolak tamu ($path)" " 401" "$(pc -D - -o /dev/null -H 'Accept: application/json' "http://127.0.0.1/api/client/servers/$SRV/extensions/$path")"
+    code=$(pa -o /dev/null -w '%{http_code}' "http://127.0.0.1/api/client/servers/$SRV/extensions/$path")
+    [[ $code == 404 ]] && ok "rute server dikenal; server yang tidak ada -> 404 ($path)" || no "rute server tidak sesuai harapan ($path)" "kode $code"
+done
+for action in kick ban op deop; do
+    has "aksi $action menolak tamu" " 401" "$(pc -D - -o /dev/null -X POST -H 'Accept: application/json' "http://127.0.0.1/api/client/servers/$SRV/extensions/player-manager/players/Steve/$action")"
+done
+
+forms=$(pa http://127.0.0.1/api/admin/extensions/forms)
+has "form server memuat bidang player-manager" "player-manager" "$forms"
+has "form server memuat bidang minecraft-suite" "minecraft-suite" "$forms"
+
+page=$(pc "http://127.0.0.1/auth/login")
+for id in player-manager minecraft-suite; do
+    has "halaman memuat bundel $id" "\"id\":\"$id\"" "$page"
+    asset=$(echo "$page" | grep -o "\"id\":\"$id\",\"entry\":\"[^\"]*\"" | head -n1 | sed 's/.*"entry":"//; s/"$//; s#\\/#/#g')
+    if [[ -n $asset ]]; then
+        ah=$(pc -D - -o /dev/null "http://127.0.0.1$asset")
+        has "aset client.js $id dilayani" " 200" "$ah"
+    else
+        no "alamat client.js $id tidak ditemukan di halaman"
+    fi
+done
+
+# ---------- modpack-installer: rute server, pengaturan, izin
+echo "== modpack-installer"
+SRV=00000000-0000-4000-8000-000000000000
+has "rute search menolak tamu" " 401" "$(pc -D - -o /dev/null -H 'Accept: application/json' "http://127.0.0.1/api/client/servers/$SRV/extensions/modpack-installer/search")"
+has "rute install menolak tamu" " 401" "$(pc -D - -o /dev/null -X POST -H 'Accept: application/json' "http://127.0.0.1/api/client/servers/$SRV/extensions/modpack-installer/install")"
+has "rute default server menolak tamu" " 401" "$(pc -D - -o /dev/null -H 'Accept: application/json' "http://127.0.0.1/api/client/servers/$SRV/extensions/modpack-installer/defaults")"
+misettings=$(pa http://127.0.0.1/api/admin/extensions/modpack-installer/settings)
+has "API key CurseForge tampil sebagai topeng" '********' "$misettings"
+lacks "API key CurseForge tidak bocor di API pengaturan" "E2E-FAKE-CURSEFORGE-KEY" "$misettings"
+miperms=$(php_run <<'PHP'
+$all = app(Pterodactyl\Services\Extensions\ExtensionPermissionRegistry::class)->all();
+echo implode(',', array_keys($all['ext.modpack-installer']['keys'] ?? []));
+PHP
+)
+has "izin modpack-installer terdaftar" "install" "$miperms"
+has "perintah cleanup modpack-installer terdaftar" "modpack-installer:cleanup" "$(art list modpack-installer 2>&1)"
+misched=$(art schedule:list 2>&1)
+has "cleanup modpack-installer terjadwal" "modpack-installer:cleanup" "$misched"
+mipage=$(pc "http://127.0.0.1/auth/login")
+has "halaman memuat bundel modpack-installer" '"id":"modpack-installer"' "$mipage"
+
+# ---------- file-transfer: rute server, pengaturan, izin, cleanup
+echo "== file-transfer"
+has "rute chunk upload menolak tamu" " 401" "$(pc -D - -o /dev/null -X POST -H 'Accept: application/json' "http://127.0.0.1/api/client/servers/$SRV/extensions/file-transfer/chunk")"
+has "rute chunk merge menolak tamu" " 401" "$(pc -D - -o /dev/null -X POST -H 'Accept: application/json' "http://127.0.0.1/api/client/servers/$SRV/extensions/file-transfer/chunk/merge")"
+has "rute remote-fetch menolak tamu" " 401" "$(pc -D - -o /dev/null -X POST -H 'Accept: application/json' "http://127.0.0.1/api/client/servers/$SRV/extensions/file-transfer/remote-fetch")"
+ftsettings=$(pa http://127.0.0.1/api/admin/extensions/file-transfer/settings)
+has "pengaturan file-transfer terbaca" '"registered":true' "$ftsettings"
+ftperms=$(php_run <<'PHP'
+$all = app(Pterodactyl\Services\Extensions\ExtensionPermissionRegistry::class)->all();
+echo implode(',', array_keys($all['ext.file-transfer']['keys'] ?? []));
+PHP
+)
+has "izin file-transfer terdaftar" "remote-fetch" "$ftperms"
+has "perintah cleanup terdaftar" "file-transfer:cleanup" "$(art list file-transfer 2>&1)"
+ftsched=$(art schedule:list 2>&1)
+has "cleanup terjadwal" "file-transfer:cleanup" "$ftsched"
+ftpage=$(pc "http://127.0.0.1/auth/login")
+has "halaman memuat bundel file-transfer" '"id":"file-transfer"' "$ftpage"
+
+# ---------- multi-node-sync: rute admin, S3 config, izin, cleanup
+echo "== multi-node-sync"
+has "API admin menolak tamu (multi-node-sync S3 config)" " 401" "$(pc -D - -o /dev/null -H 'Accept: application/json' http://127.0.0.1/api/admin/extensions/multi-node-sync/s3/config)"
+has "API admin menolak tamu (multi-node-sync presign)" " 401" "$(pc -D - -o /dev/null -X POST -H 'Accept: application/json' http://127.0.0.1/api/admin/extensions/multi-node-sync/s3/presign)"
+has "API admin menolak tamu (multi-node-sync migrations)" " 401" "$(pc -D - -o /dev/null -X POST -H 'Accept: application/json' http://127.0.0.1/api/admin/extensions/multi-node-sync/migrations)"
+mnsettings=$(pa http://127.0.0.1/api/admin/extensions/multi-node-sync/settings)
+has "S3 secret key tampil sebagai topeng" '********' "$mnsettings"
+lacks "S3 secret key tidak bocor di API pengaturan" "E2E-FAKE-S3-SECRET" "$mnsettings"
+mncfg=$(pa http://127.0.0.1/api/admin/extensions/multi-node-sync/s3/config)
+has "S3 config: configured false secara default" '"configured":false' "$mncfg"
+lacks "S3 config tanpa kredensial" "access_key" "$mncfg"
+lacks "S3 config tanpa secret key" "secret_key" "$mncfg"
+mnperms=$(php_run <<'PHP'
+$all = app(Pterodactyl\Services\Extensions\ExtensionPermissionRegistry::class)->all();
+echo implode(',', array_keys($all['ext.multi-node-sync']['keys'] ?? []));
+PHP
+)
+has "izin multi-node-sync terdaftar" "migrate,s3-presign" "$mnperms"
+has "perintah cleanup multi-node-sync terdaftar" "multi-node-sync:cleanup" "$(art list multi-node-sync 2>&1)"
+mnsched=$(art schedule:list 2>&1)
+has "cleanup multi-node-sync terjadwal" "multi-node-sync:cleanup" "$mnsched"
+mnpage=$(pc "http://127.0.0.1/auth/login")
+has "halaman memuat bundel multi-node-sync" '"id":"multi-node-sync"' "$mnpage"
 
 # ---------- siklus hidup
 echo "== siklus hidup"
