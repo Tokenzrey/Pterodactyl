@@ -38,7 +38,7 @@ Semua port terikat ke `127.0.0.1`. Ketiga port ini harus berbeda satu sama lain,
 | Variabel | Bawaan | Aturan validasi | Efek |
 |---|---|---|---|
 | `PANEL_BIND_PORT` | `8081` | 1 sampai 65535 | port Panel di loopback; origin route Panel |
-| `WINGS_API_PORT` | `443` | 1 sampai 65535 | port Wings di loopback; origin route Wings. Harus sama dengan **Daemon Port** node, karena Panel menulis `api.port` dari kolom itu dan menimpanya setiap node disimpan |
+| `WINGS_API_PORT` | `443` | 1 sampai 65535 | port Wings di loopback; origin route Wings. Harus sama dengan **Daemon Port** node, karena Panel menulis `api.port` dari kolom itu dan menimpanya setiap node disimpan. Dengan `WINGS_MODE=container`: port yang dipublikasikan container Wings di `127.0.0.1` (tidak boleh 2022) |
 | `TUNNEL_METRICS_PORT` | `20241` | 1 sampai 65535 | endpoint kesiapan cloudflared (`tunnel ready`) |
 | `PANEL_EDGE_SUBNET` | `172.29.250.0/24` | jaringan IPv4 privat dalam bentuk `basis/prefiks` dengan prefiks `/16` sampai `/29`; preflight menolak yang tumpang tindih dengan jaringan Docker atau rute host | subnet jaringan `edge`; satu-satunya sumber yang dipercaya Panel untuk header `X-Forwarded-*` (`TRUSTED_PROXIES`) |
 
@@ -46,8 +46,9 @@ Semua port terikat ke `127.0.0.1`. Ketiga port ini harus berbeda satu sama lain,
 
 | Variabel | Bawaan | Aturan validasi | Efek |
 |---|---|---|---|
-| `WINGS_REMOTE_MODE` | `public` | `public` atau `internal` | `public`: `remote` = `https://PANEL_FQDN` (sesuai dokumentasi upstream). `internal`: `http://127.0.0.1:PANEL_BIND_PORT` tanpa melewati Cloudflare |
-| `WINGS_SFTP_BIND` | `127.0.0.1` | alamat IPv4 | `system.sftp.bind_address` Wings. `0.0.0.0` membuka SFTP; `firewall apply` lalu ikut membuka `2022/tcp` dan `audit` menganggapnya diharapkan |
+| `WINGS_MODE` | `host` | `host` atau `container` | `host`: biner dan unit systemd di host (jalur upstream; pakai di VPS). `container`: Wings dan egress guard sebagai layanan Compose dari `compose.wings.yml`, untuk mesin tanpa systemd dan Docker Engine (Docker Desktop di WSL2). Container itu memegang socket Docker dan bind mount path host: [Keamanan](security.md#wings-sebagai-container-risiko-tambahan). Preflight menolak mode ini selama layanan Wings native aktif |
+| `WINGS_REMOTE_MODE` | `public` | `public` atau `internal` | `public`: `remote` = `https://PANEL_FQDN` (sesuai dokumentasi upstream). `internal`: `http://127.0.0.1:PANEL_BIND_PORT` tanpa melewati Cloudflare (mode container: `http://panel:80` di jaringan Compose) |
+| `WINGS_SFTP_BIND` | `127.0.0.1` | alamat IPv4 | `system.sftp.bind_address` Wings. `0.0.0.0` membuka SFTP; `firewall apply` lalu ikut membuka `2022/tcp` dan `audit` menganggapnya diharapkan. Mode container: alamat host tempat port 2022 dipublikasikan |
 | `WINGS_TUNING` | `yes` | `yes` atau `no` | `yes`: menerapkan tuning konservatif ke kunci Wings yang sudah ada (batas PID 512, cek disk tiap 300 detik, batas tulis backup 50 MiB/dtk, tidak restart-loop pada `stop` bersih, batas unggah 100 MB, throttle konsol). Tidak menambah kunci baru |
 
 ### Ekstensi dan tema Panel
@@ -114,6 +115,7 @@ Berkas ini dilacak Git dan diubah dengan sengaja, lalu diikuti `./ptero update`.
 | `INSTALLER_IMAGE` | `python:3.12-slim-bookworm` dengan digest | kontainer instalasi egg modpack |
 | `WINGS_VERSION` | `vX.Y.Z` | unduhan Wings; harus cocok dengan pola `^v[0-9]+\.[0-9]+\.[0-9]+$` |
 | `WINGS_SHA256_AMD64`, `WINGS_SHA256_ARM64` | 64 karakter heksadesimal | verifikasi unduhan Wings; biner yang tidak cocok tidak dipasang |
+| `WINGS_IMAGE` | `ghcr.io/pterodactyl/wings@sha256:...` | `compose.wings.yml` (mode container); harus berdigest (indeks multi-arsitektur) dan rilisnya sama dengan `WINGS_VERSION` |
 
 Prosedur menaikkan versi (mengambil digest, menghitung sha256, menguji): [Pengembangan](development.md#menaikkan-versi).
 

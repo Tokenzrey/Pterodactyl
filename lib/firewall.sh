@@ -185,7 +185,11 @@ EGRESS_PRIVATE=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.
 
 egress_subnet() { # prefer the subnet Wings is really configured with
     local cfg s; cfg="$(wings_etc)/config.yml"
-    if [[ -r $cfg ]]; then
+    if wings_container_mode; then   # the config is in a volume: read a copy of it
+        cfg=$PTERO_TMP/egress-wings.yml
+        wings_vol_has_config && wings_vol_read_config >"$cfg" 2>/dev/null || cfg=""
+    fi
+    if [[ -n $cfg && -r $cfg ]]; then
         s=$(python3 "$PTERO_ROOT/lib/wings_config.py" get "$cfg" docker network interfaces v4 subnet 2>/dev/null)
         if [[ -n $s && $s != "${GAME_NET_SUBNET:-}" ]]; then warn "GAME_NET_SUBNET=${GAME_NET_SUBNET:-unset} differs from Wings' docker.network.interfaces.v4.subnet=$s; using $s" >&2; fi
         [[ -n $s ]] && { echo "$s"; return; }
@@ -213,6 +217,10 @@ egress_apply() {
 
 cmd_egress() {
     local sub=${1:-}; shift || true
+    # These commands edit THIS host's iptables. With Wings in a container the game containers live in the Docker daemon's own
+    # network namespace (Docker Desktop: its VM), which the egress-guard Compose service reaches; host rules would guard nothing.
+    load_config >/dev/null 2>&1 || true
+    wings_container_mode && die "WINGS_MODE=container: the egress rules are installed by the egress-guard service, not by this command. Check it with: ./ptero wings status" $EX_REFUSED
     case $sub in
         apply)
             need_root "firewall egress apply"
@@ -260,6 +268,8 @@ cmd_audit() {
     done < <(${PTERO_SS:-ss} -H -ltnu 2>/dev/null | awk '{ n = split($5, a, ":"); port = a[n]; addr = substr($5, 1, length($5) - length(port) - 1); proto = ($1 ~ /^udp/) ? "udp" : "tcp"; print proto, addr, port }')
     if have docker; then
         while read -r name ports; do
+            # the Wings container publishes SFTP on WINGS_SFTP_BIND; when that is a deliberate non-loopback address it is expected
+            [[ $WINGS_SFTP_BIND != 127.0.0.1 && $name == "${PTERO_PROJECT}-wings-1" ]] && { ports=${ports//0.0.0.0:2022/}; ports=${ports//\[::\]:2022/}; }
             [[ $ports =~ (0\.0\.0\.0|\[::\]):[0-9]+ ]] && { printf '  UNEXPECTED container %s publishes %s\n' "$name" "$ports"; bad=1; }
         done < <(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null)
     fi

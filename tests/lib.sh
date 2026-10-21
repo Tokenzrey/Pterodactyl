@@ -23,16 +23,40 @@ finish() {
     [[ $T_FAIL -eq 0 ]]
 }
 
+# assert_fakes_first: every tool the suite fakes must resolve to the sandbox copy, never to the real one. If one does not, stop
+# at once (exit 99): the suite would otherwise act on this machine (an unprotected run once stopped and removed a live stack).
+assert_fakes_first() {
+    local tool
+    for tool in docker curl systemctl systemd-run ufw iptables sshd getent nc; do
+        [[ $(command -v "$tool") == "$SB/fakebin/$tool" ]] && continue
+        printf 'FATAL: %s resolves to %s, not to the test fake. Refusing to run: the suite would act on this machine.\n' \
+            "$tool" "$(command -v "$tool" || echo nothing)" >&2
+        sandbox_cleanup   # the sandbox was already created; do not leave it behind
+        exit 99
+    done
+}
+
 # sandbox: a throw-away copy of the repo + a fake host. Everything the tests touch lives under $SB.
 sandbox() {
-    SB=$(mktemp -d "${TMPDIR:-/tmp}/ptero-test.XXXXXX")
+    # TMPDIR is re-pointed into every sandbox below, so remember where sandboxes belong: a second sandbox() in one test (after
+    # sandbox_cleanup) must not look for the first one's directory. An empty $SB would make $R "/root", so refuse to go on.
+    : "${PTERO_TEST_BASE_TMP:=${TMPDIR:-/tmp}}"; export PTERO_TEST_BASE_TMP
+    SB=$(mktemp -d "$PTERO_TEST_BASE_TMP/ptero-test.XXXXXX") && [[ -d $SB ]] \
+        || { echo "FATAL: cannot create the test sandbox under $PTERO_TEST_BASE_TMP" >&2; exit 99; }
     R=$SB/root
     mkdir -p "$R/config" "$SB/state" "$SB/host/bin" "$SB/host/etc" "$SB/host/systemd" "$SB/tmp"
     cp -r "$REPO/ptero" "$REPO/lib" "$REPO/compose.yml" "$REPO/systemd" "$REPO/eggs" "$REPO/extensions" "$R/"
     cp "$REPO/config/versions.env" "$REPO/config/deploy.env.example" "$R/config/"
     chmod +x "$R/ptero"
     export FAKE_STATE=$SB/state FAKE_PROJECT=pterodactyl
-    export PATH="$REPO/tests/fakebin:$PATH"
+    # The fakes are copied into the sandbox and made executable here. Git records them as 100644 on a checkout made from
+    # Windows, and without the executable bit `docker` would resolve to the real daemon.
+    mkdir -p "$SB/fakebin"
+    cp "$REPO"/tests/fakebin/* "$SB/fakebin/" && chmod +x "$SB"/fakebin/*
+    export PATH="$SB/fakebin:$PATH"
+    # Second layer: even a real docker client cannot reach a daemon from inside the suite.
+    export DOCKER_HOST=unix:///nonexistent/ptero-tests-never-reach-a-real-daemon.sock
+    assert_fakes_first
     export PTERO_TEST_MODE=1 PTERO_PREFLIGHT_SKIP=net TMPDIR=$SB/tmp
     export PTERO_WINGS_BIN=$SB/host/bin/wings PTERO_WINGS_ETC=$SB/host/etc/pterodactyl PTERO_SYSTEMD_DIR=$SB/host/systemd
     unset FAKE_DUMP_FAIL FAKE_DUMP_TRUNCATE FAKE_IMPORT_FAIL FAKE_MIGRATE_RC FAKE_PULL_RC FAKE_UP_RC FAKE_NETWORKS FAKE_DOCKER_DOWN FAKE_WINGS_BIN

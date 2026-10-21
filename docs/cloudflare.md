@@ -51,6 +51,7 @@ Server perlu koneksi **keluar** ke Cloudflare pada port 7844 (TCP dan UDP). `./p
 - Service URL tanpa `http://` ditolak form dengan `Invalid service URL`.
 - Skemanya `http`, bukan `https`: TLS berakhir di Cloudflare, dan origin hanya mendengar di loopback.
 - Origin memakai `127.0.0.1` karena konektor berjalan dengan jaringan host.
+- Dengan `WINGS_MODE=container` origin-nya sama (`http://127.0.0.1:WINGS_API_PORT`): "host" bagi konektor adalah VM Docker Desktop, dan di situlah port API container Wings dipublikasikan. Wings systemd di distro WSL tidak terjangkau dari sana (`502`).
 - WebSocket (konsol server) bekerja tanpa pengaturan tambahan pada route HTTP.
 - Port origin Wings harus sama dengan `api.port` di config Wings. Panel menulis `api.port` dari **Daemon Port** node dan menimpanya setiap node disimpan; `wings configure` menambalnya ke `WINGS_API_PORT`. Bila port tidak cocok, Anda mendapat `502` di edge.
 

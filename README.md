@@ -1,6 +1,6 @@
 # Pterodactyl Panel + Wings + server Minecraft di satu VPS Linux
 
-Repositori ini memasang dan mengoperasikan **Pterodactyl Panel 2.0** (Docker), **Wings** (biner + systemd di host), dan, secara opsional, **server Minecraft langsung dari modpack CurseForge atau Modrinth** yang masing-masing punya nama domain sendiri. Semuanya dijalankan lewat satu skrip, `./ptero`, yang memeriksa keadaan sebelum bertindak, tidak menyimpan rahasia di command line, dan tidak pernah menghapus data Anda.
+Repositori ini memasang dan mengoperasikan **Pterodactyl Panel 2.0** (Docker), **Wings** (biner + systemd di host; atau container di Docker Desktop, lihat [Wings sebagai container](docs/operations.md#wings-sebagai-container-wings_modecontainer)), dan, secara opsional, **server Minecraft langsung dari modpack CurseForge atau Modrinth** yang masing-masing punya nama domain sendiri. Semuanya dijalankan lewat satu skrip, `./ptero`, yang memeriksa keadaan sebelum bertindak, tidak menyimpan rahasia di command line, dan tidak pernah menghapus data Anda.
 
 > [!WARNING]
 > **Panel 2.0 masih beta.** Per 2026-10-20 versi yang dipatok adalah `v2.0.0-beta.2`; rilis stabil upstream adalah `1.15.1`, dan upstream menyarankan panel produksi tetap di 1.x. Repositori ini menargetkan jalur 2.0 dan menolak berjalan sampai Anda menulis `PTERO_ACCEPT_BETA=yes`. Baca [Versi dan risiko beta](docs/architecture.md#versi-dan-risiko-beta) sebelum memutuskan.
@@ -12,20 +12,20 @@ Tabel ini meringkas apa yang sudah dijalankan pada komponen asli dan apa yang be
 | Area | Status | Catatan |
 |---|---|---|
 | Stack Panel (Panel, MariaDB, Redis) | **Nyata** | `setup`, `backup`/`restore`, `update --check`, ekstensi dan tema dijalankan dengan image yang dipatok |
-| Wings | **Nyata** di container systemd uji; **belum diuji** di host Linux | pemasangan biner dengan sha256, konfigurasi dari Panel nyata, koneksi dua arah dengan Panel |
+| Wings | **Nyata** di container systemd uji dan sebagai container di Docker Desktop (`WINGS_MODE=container`); **belum diuji** di host Linux | pemasangan biner dengan sha256, konfigurasi dari Panel nyata, koneksi dua arah dengan Panel; mode container: `wings install`, `down` dan `up`, `update`, `backup` pada daemon nyata |
 | Firewall (ufw), dead-man switch, egress guard | **Nyata** di container uji dengan ufw, systemd, dan iptables asli; **belum diuji** di host VPS | aplikasi pertama di VPS memerlukan sesi SSH cadangan |
 | Router game (mc-router) | **Nyata** | nama terdaftar diteruskan; IP langsung, nama tak dikenal, dan nama kosong ditolak |
 | Install modpack lewat Wings | **Nyata** (Forge 1.20.1) | installer juga diuji dengan jaringan nyata untuk Fabric, NeoForge, dan Forge 1.12.2 |
-| Menjalankan server game lewat Wings | **Belum diuji** | tidak bisa dicoba di Docker Desktop (bind `/etc/machine-id` gagal); uji pertama di VPS |
+| Menjalankan server game lewat Wings | **Nyata** di Docker Desktop dengan Wings sebagai container; **belum diuji** di VPS dan dengan modpack Minecraft nyata | container game berjalan, `/etc/machine-id` berupa berkas, egress guard memblokir LAN dan metadata; server uji memakai image `yolks` dengan perintah `sleep` ([Verifikasi](docs/verification.md#wings-sebagai-container-di-docker-desktop-daemon-nyata)) |
 | Cloudflare Tunnel dengan akun nyata, Access, WAF | **Belum diuji** | memerlukan akun Anda; `cloudflared` hanya diuji menolak token tidak valid |
 | CurseForge dengan kunci nyata | **Belum diuji** | alur diuji dengan mock; Modrinth dan tautan langsung diuji nyata |
-| Test otomatis | **Otomatis** | 524 pemeriksaan shell dan 45 test unit Python, semuanya lulus pada 2026-10-20 |
+| Test otomatis | **Otomatis** | 618 pemeriksaan shell dan 45 test unit Python, semuanya lulus pada 2026-10-21 |
 
 ## Yang Anda dapatkan
 
 - **Satu perintah untuk seluruh siklus hidup:** `init`, `setup`, `status`, `verify`, `backup`, `restore`, `update`, `diagnose`, dan seterusnya. Daftar lengkap: [docs/commands.md](docs/commands.md).
 - **Panel di balik Cloudflare Tunnel.** Tidak ada port web yang terbuka di VPS. Panel dan Wings API hanya mendengar di `127.0.0.1`.
-- **Wings sebagai layanan systemd** dengan biner yang diverifikasi sha256, konfigurasi dari Panel yang diperiksa dan ditambal, serta unit yang tetap mencoba setelah reboot.
+- **Wings sebagai layanan systemd** dengan biner yang diverifikasi sha256, konfigurasi dari Panel yang diperiksa dan ditambal, serta unit yang tetap mencoba setelah reboot. Di Docker Desktop (WSL2), Wings bisa berjalan sebagai container dengan egress guard sendiri (`WINGS_MODE=container`).
 - **Firewall yang tidak mengunci Anda:** SSH dideteksi dan diizinkan sebelum ufw dinyalakan, dan *dead-man switch* mematikan ufw lagi bila Anda tidak mengonfirmasi dari sesi baru.
 - **Isolasi server game:** egress guard memblokir jaringan game dari host, LAN, dan metadata cloud.
 - **Server Minecraft dari modpack** (opsional): satu port publik, satu nama per server, dibuat dengan satu perintah. Detail: [docs/games.md](docs/games.md).
@@ -125,7 +125,7 @@ Indeks lengkap, jalur baca per peran, dan pencarian berdasarkan gejala: [docs/RE
 | `./ptero backup [--label x]` | Backup konsisten, tidak pernah menghapus backup lain |
 | `./ptero restore <backup>` | Mengganti basis data dan `APP_KEY` dari backup, setelah konfirmasi dan safety backup |
 | `./ptero update [--check]` | Backup wajib, pull image sesuai pin, migrasi, restart |
-| `sudo ./ptero wings update` | Mengganti biner Wings ke versi yang dipatok |
+| `sudo ./ptero wings update` | Mengganti biner Wings ke versi yang dipatok (mode container: `./ptero wings update` tanpa sudo, menarik image yang dipatok) |
 | `./ptero game create ...` | Server modpack baru lengkap dengan nama domainnya |
 | `./ptero diagnose [--output f]` | Laporan bantuan dengan rahasia disamarkan |
 | `./ptero up` / `down` | Menyalakan atau menghentikan container (`down` tidak menghapus data) |
@@ -137,6 +137,7 @@ Semua perintah, opsi, hak akses, dan kode keluar: [docs/commands.md](docs/comman
 ```text
 ptero                      skrip utama (./ptero help)
 compose.yml                Panel, MariaDB, Redis, cloudflared (profil tunnel), mc-router (profil games)
+compose.wings.yml          Wings dan egress-guard sebagai container (hanya dimuat dengan WINGS_MODE=container)
 config/versions.env        versi dan digest yang dipatok (dilacak Git)
 config/deploy.env.example  contoh konfigurasi tanpa rahasia (dilacak Git); deploy.env buatan Anda tidak dilacak
 lib/                       logika: common, config, preflight, stack, backup, wings, diag, games, firewall, egg, ext (.sh)
@@ -156,7 +157,7 @@ secrets/ backups/ runtime/ dibuat saat runtime, tidak dilacak Git
 bash tests/run.sh               # tidak butuh Docker nyata, jaringan, atau domain
 ```
 
-Test memakai `docker`, `curl`, `systemctl`, `ufw`, dan `iptables` tiruan di `tests/fakebin/` serta salinan repositori di direktori sementara, sehingga tidak menyentuh layanan atau data nyata. Hasil, pemeriksaan pada stack nyata, dan daftar hal yang belum teruji: [docs/verification.md](docs/verification.md).
+Test memakai `docker`, `curl`, `systemctl`, `ufw`, dan `iptables` tiruan di `tests/fakebin/` serta salinan repositori di direktori sementara, sehingga tidak menyentuh layanan atau data nyata. Pengamannya berlapis: test menyalin tiruan dan memberinya bit eksekusi sendiri, suite berhenti (kode 99) bila ada alat yang tidak resolve ke tiruan, dan `DOCKER_HOST` diarahkan ke socket yang tidak ada. Jalankan di checkout bersih (tanpa `config/deploy.env` dan `secrets/`); alasannya di [docs/development.md](docs/development.md#menjalankan-test). Hasil, pemeriksaan pada stack nyata, dan daftar hal yang belum teruji: [docs/verification.md](docs/verification.md).
 
 ## Batasan yang perlu Anda ketahui
 

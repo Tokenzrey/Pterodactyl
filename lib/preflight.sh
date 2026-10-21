@@ -77,7 +77,9 @@ pf_ports() {
     local owner_panel=0 owner_tunnel=0 owner_wings=0
     if have docker && [[ -n $(compose ps -q --status running panel 2>/dev/null) ]]; then owner_panel=1; fi
     if have docker && [[ -n $(compose ps -q --status running cloudflared 2>/dev/null) ]]; then owner_tunnel=1; fi
-    if have systemctl && systemctl is-active --quiet wings 2>/dev/null; then owner_wings=1; fi
+    if wings_container_mode; then
+        have docker && [[ -n $(compose_wings ps -q --status running wings 2>/dev/null) ]] && owner_wings=1
+    elif have systemctl && systemctl is-active --quiet wings 2>/dev/null; then owner_wings=1; fi
     local chk owner_router=0 checks
     if have docker && [[ -n $(compose ps -q --status running mc-router 2>/dev/null) ]]; then owner_router=1; fi
     checks=("PANEL_BIND_PORT:$owner_panel:Panel" "TUNNEL_METRICS_PORT:$owner_tunnel:cloudflared metrics" "WINGS_API_PORT:$owner_wings:Wings API")
@@ -90,6 +92,17 @@ pf_ports() {
             else pf_fail "$var ${!var} is already in use by something else (ss -ltnp 'sport = :${!var}'); change it in config/deploy.env"; fi
         else pf_ok "$var ${!var} is free"; fi
     done
+}
+
+# WINGS_MODE=container and a native Wings service must not both exist: they would be two Wings for one node, and both want the
+# API port and SFTP port 2022 (found in the real run: Docker Desktop refuses to publish 2022 while the native service holds it).
+pf_wings_mode() {
+    wings_container_mode || return 0
+    if wings_native_active; then
+        pf_fail "WINGS_MODE=container, but the native Wings service (systemd) is active: two Wings for one node clash on the API port and on SFTP port 2022. Stop it: sudo systemctl disable --now wings"
+    else
+        pf_ok "WINGS_MODE=container: Wings runs as a Compose service; no native Wings service is active"
+    fi
 }
 
 # prints the first existing subnet/route that overlaps $1, ignoring an entry identical to $2
@@ -174,7 +187,7 @@ preflight() {
     PF_FAIL=0 PF_WARN=0
     printf 'Preflight (read-only):\n'
     pf_os; pf_tools; pf_docker; pf_resources
-    if [[ -n ${PANEL_EDGE_SUBNET:-} ]]; then pf_ports; pf_network; fi
+    if [[ -n ${PANEL_EDGE_SUBNET:-} ]]; then pf_ports; pf_wings_mode; pf_network; fi
     pf_internet
     printf 'Result: %d failed, %d warnings\n' "$PF_FAIL" "$PF_WARN"
     ((PF_FAIL == 0))

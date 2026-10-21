@@ -52,7 +52,16 @@ diag_body() {
     done
 
     diag_section "wings"
-    if have systemctl && systemctl cat wings >/dev/null 2>&1; then
+    if wings_container_mode; then
+        printf 'mode: container (%s)\n' "${WINGS_IMAGE%%@*}"
+        compose_wings ps -a wings egress-guard 2>&1 || true
+        compose_wings logs --no-color --tail 40 wings egress-guard 2>&1 || true
+        if wings_vol_has_config; then
+            local dcfg="$PTERO_TMP/wings-diag.yml"
+            wings_vol_read_config >"$dcfg" 2>/dev/null && python3 "$PTERO_ROOT/lib/wings_config.py" check "$dcfg" --port "$WINGS_API_PORT" --container 2>&1 || true
+            rm -f -- "$dcfg"
+        else echo "config.yml: not in the $(wings_etc_volume) volume yet"; fi
+    elif have systemctl && systemctl cat wings >/dev/null 2>&1; then
         systemctl status wings --no-pager -n 0 2>&1 | head -n 12 || true
         journalctl -u wings -n 40 --no-pager 2>&1 || true
         local cfg; cfg=$(wings_etc)/config.yml

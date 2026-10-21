@@ -11,11 +11,14 @@ SERVICES=(database cache panel)
 declare -A IMGVAR=([database]=MARIADB_IMAGE [cache]=REDIS_IMAGE [panel]=PANEL_IMAGE [cloudflared]=CLOUDFLARED_IMAGE)
 
 compose_cmd() {
-    local profile_tunnel=0
+    local profile_tunnel=0 profile_wings=0
     while (($#)); do
         case $1 in
             -p|-f|--project-directory|--env-file) shift 2 ;;
-            --profile) [[ $2 == tunnel || $2 == '*' ]] && profile_tunnel=1; shift 2 ;;
+            --profile)
+                [[ $2 == tunnel || $2 == '*' ]] && profile_tunnel=1
+                [[ $2 == wings || $2 == '*' ]] && profile_wings=1
+                shift 2 ;;
             *) break ;;
         esac
     done
@@ -32,7 +35,11 @@ compose_cmd() {
             local svcs=()
             while (($#)); do case $1 in --wait-timeout) shift ;; -*) ;; *) svcs+=("$1") ;; esac; shift; done
             ((${#svcs[@]})) || { svcs=("${SERVICES[@]}"); ((profile_tunnel)) && svcs+=(cloudflared); }
-            local s; for s in "${svcs[@]}"; do touch "$S/running/$s"; [[ -e $S/health/$s ]] || echo healthy >"$S/health/$s"; done
+            local s; for s in "${svcs[@]}"; do
+                # like the real compose: a service behind the `wings` profile cannot be named unless that profile is on
+                case $s in wings|egress-guard) ((profile_wings)) || { echo "no such service: $s" >&2; exit 1; } ;; esac
+                touch "$S/running/$s"; [[ -e $S/health/$s ]] || echo healthy >"$S/health/$s"
+            done
             exit "${FAKE_UP_RC:-0}" ;;
         stop) local s; for s in "$@"; do rm -f "$S/running/$s"; done; exit 0 ;;
         down) rm -f "$S"/running/*; exit 0 ;;
@@ -157,7 +164,12 @@ case ${1:-} in
             *Config.Image*) if [[ -s $S/image/$svc ]]; then cat "$S/image/$svc"; else v=${IMGVAR[$svc]:-}; echo "${!v}"; fi ;;
         esac
         exit 0 ;;
-    volume) [[ ${2:-} == inspect && -d $S/volumes/${3:-} ]] && exit 0 || exit 1 ;;
+    volume)
+        case ${2:-} in
+            inspect) [[ -d $S/volumes/${3:-} ]] && exit 0 || exit 1 ;;
+            create) mkdir -p "$S/volumes/${*: -1}"; exit 0 ;;
+        esac
+        exit 1 ;;
     network)
         case ${2:-} in
             ls) echo netid1 ;;

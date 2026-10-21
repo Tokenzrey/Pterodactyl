@@ -9,6 +9,7 @@ Halaman ini menjelaskan struktur kode, prinsip yang dipegang setiap perubahan, c
 | Berkas | Peran |
 |---|---|
 | `ptero` | titik masuk: memuat `lib/*.sh`, mengurai `--yes`, mengarahkan perintah |
+| `compose.yml`, `compose.wings.yml` | stack bawaan; Wings dan egress guard sebagai container (hanya dimuat dengan `WINGS_MODE=container`). Satu-satunya berkas yang boleh memuat `docker.sock` dan bind mount path host adalah yang kedua |
 | `lib/common.sh` | helper: `info`, `warn`, `die`, `confirm`, `wait_until`, `read_hidden`, `write_secret`, `redact`; kode keluar; direktori sementara privat |
 | `lib/config.sh` | pemuatan (`load_envfile`), validasi (`validate_config`), pemeriksaan rahasia, nilai bawaan |
 | `lib/preflight.sh` | pemeriksaan host yang hanya membaca |
@@ -45,12 +46,14 @@ bash tests/run.sh t_wings.sh      # satu berkas
 python3 -I tests/check_docs.py    # hanya pemeriksaan dokumentasi
 ```
 
+**Jalankan di checkout bersih, dan jangan mengandalkan bit eksekusi.** Suite mengasumsikan tidak ada `config/deploy.env` dan `secrets/` (`t_static.sh` memeriksanya), jadi jalankan di salinan sekali pakai, bukan di checkout yang Anda operasikan. Tiruan di `tests/fakebin/` disalin ke sandbox dan diberi bit eksekusi oleh `tests/lib.sh` sendiri, karena Git mencatatnya sebagai `100644` pada checkout dari Windows. Tiga pengaman mencegah test menyentuh mesin Anda: `assert_fakes_first` menghentikan suite (kode 99) bila `docker`, `curl`, `systemctl`, `systemd-run`, `ufw`, `iptables`, `sshd`, `getent`, atau `nc` tidak resolve ke tiruan; `DOCKER_HOST` diarahkan ke socket yang tidak ada; dan `ptero` menolak `PTERO_TEST_MODE=1` bila `docker` bukan tiruan. Ketiganya ada karena satu run tanpa pengaman pernah menghentikan dan menghapus container stack yang hidup ([Verifikasi](verification.md#temuan-yang-mengubah-kode)).
+
 Test tidak memerlukan Docker nyata, jaringan, atau domain. `docker`, `curl`, `systemctl`, `systemd-run`, `ufw`, `iptables`, `sshd`, `getent`, `nc`, dan `ss` (lewat `fakess` dan `PTERO_SS`) ditiru di `tests/fakebin/`, dan setiap test bekerja pada salinan repositori di direktori sementara (`sandbox` di `tests/lib.sh`). Dua pemeriksaan opsional di `t_static.sh` hanya berjalan bila `docker` nyata tersedia: render `docker compose config` dan shellcheck.
 
 | File | Cakupan |
 |---|---|
 | `t_config.sh`, `t_stack.sh`, `t_backup.sh` | konfigurasi, siklus hidup stack, backup dan restore |
-| `t_wings.sh`, `t_firewall.sh` | Wings, ufw, dead-man switch, egress guard, audit |
+| `t_wings.sh`, `t_firewall.sh` | Wings (mode host dan container), ufw, dead-man switch, egress guard, audit |
 | `t_games_cli.sh`, `t_games.sh`, `t_installer.sh` | CLI game, `games.py` terhadap Panel palsu, installer modpack (juga menjalankan `test_games.py` dan `test_installer.py`) |
 | `t_ext.sh` | ekstensi dan tema |
 | `t_static.sh` | sintaks, render compose, pemindaian rahasia, penghapusan data, redaksi, shellcheck |

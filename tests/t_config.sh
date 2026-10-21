@@ -50,6 +50,14 @@ bad 's#^PANEL_EDGE_SUBNET=.*#PANEL_EDGE_SUBNET=8.8.8.0/24#' "PANEL_EDGE_SUBNET" 
 bad 's#^PANEL_EDGE_SUBNET=.*#PANEL_EDGE_SUBNET=10.77.250.5/24#' "PANEL_EDGE_SUBNET" "non-network address rejected"
 bad 's/^APP_TIMEZONE=.*/APP_TIMEZONE=Mars\/Base/' "APP_TIMEZONE" "unknown timezone rejected"
 bad 's/^WINGS_REMOTE_MODE=.*/WINGS_REMOTE_MODE=sideways/' "WINGS_REMOTE_MODE" "bad remote mode rejected"
+bad 's/^WINGS_MODE=.*/WINGS_MODE=sideways/' "WINGS_MODE must be" "bad Wings mode rejected"
+bad 's/^WINGS_MODE=.*/WINGS_MODE=container/;s/^WINGS_API_PORT=.*/WINGS_API_PORT=2022/' "must not be 2022 with WINGS_MODE=container" "container mode: API port must not take the SFTP port"
+sed -i 's/^WINGS_MODE=.*/WINGS_MODE=container/' "$R/config/deploy.env"
+p status
+assert_not_contains "$OUT" "WINGS_MODE" "WINGS_MODE=container is a valid value"
+sed -i '/^WINGS_MODE=/d' "$R/config/deploy.env"
+p status
+assert_not_contains "$OUT" "WINGS_MODE" "a deploy.env without WINGS_MODE still validates (defaults to host)"
 
 echo "validation: no code execution from the config file"
 cp "$R/config/deploy.env" "$SB/deploy.env.bak"
@@ -60,6 +68,12 @@ assert_eq 3 "$RC" "the unsafe line is rejected"
 cp "$SB/deploy.env.bak" "$R/config/deploy.env"
 
 echo "validation: pinned versions"
+cp "$R/config/versions.env" "$SB/versions.env.bak"
+sed -i 's#^WINGS_IMAGE=.*#WINGS_IMAGE=ghcr.io/pterodactyl/wings:v1.13.4#' "$R/config/versions.env"
+p status
+assert_eq 3 "$RC" "a Wings image that is not pinned by digest is rejected"
+assert_contains "$OUT" "WINGS_IMAGE must be pinned by digest" "naming WINGS_IMAGE"
+cp "$SB/versions.env.bak" "$R/config/versions.env"
 cp "$R/config/versions.env" "$SB/versions.bak"
 sed -i 's#^PANEL_IMAGE=.*#PANEL_IMAGE=ghcr.io/pterodactyl/panel:latest#' "$R/config/versions.env"
 p status

@@ -13,16 +13,17 @@ rm -rf lib/__pycache__
 
 echo "compose.yml rendered by the real docker compose"
 REALDOCKER=$(command -v docker || true)
-if [[ -z $REALDOCKER ]] || ! "$REALDOCKER" compose version >/dev/null 2>&1; then
+if [[ -z $REALDOCKER ]] || ! env -u DOCKER_HOST "$REALDOCKER" compose version >/dev/null 2>&1; then
     echo "  skip docker compose not available (not verified here)"
 else
     ENVF=$(mktemp)
     # shellcheck disable=SC2064
     trap "rm -f '$ENVF'" EXIT
-    grep -E '^(MARIADB|REDIS|CLOUDFLARED|PANEL|UTILITY|MCROUTER|INSTALLER)_IMAGE=' config/versions.env >"$ENVF"
+    grep -E '^(MARIADB|REDIS|CLOUDFLARED|PANEL|UTILITY|MCROUTER|INSTALLER|WINGS)_IMAGE=' config/versions.env >"$ENVF"
     printf '%s\n' DB_PASSWORD=dummydummydummydummydummy REDIS_PASSWORD=dummydummydummydummydummy PANEL_FQDN=panel.mytest.dev \
-        ADMIN_EMAIL=ops@mytest.dev PANEL_EDGE_SUBNET=10.77.250.0/24 PANEL_BIND_PORT=18081 TUNNEL_METRICS_PORT=12041 TUNNEL_TOKEN=dummy >>"$ENVF"
-    if "$REALDOCKER" compose --env-file "$ENVF" -f compose.yml --profile '*' config --format json >"$ENVF.json" 2>"$ENVF.err"; then
+        ADMIN_EMAIL=ops@mytest.dev PANEL_EDGE_SUBNET=10.77.250.0/24 PANEL_BIND_PORT=18081 TUNNEL_METRICS_PORT=12041 TUNNEL_TOKEN=dummy \
+        WINGS_API_PORT=18443 WINGS_SFTP_BIND=127.0.0.1 GAME_NET_SUBNET=10.201.0.0/16 >>"$ENVF"
+    if env -u DOCKER_HOST "$REALDOCKER" compose --env-file "$ENVF" -f compose.yml --profile '*' config --format json >"$ENVF.json" 2>"$ENVF.err"; then
         pass "docker compose config accepts compose.yml"
         out=$(python3 - "$ENVF.json" <<'PY'
 import json, sys
@@ -75,6 +76,67 @@ PY
     else
         fail "docker compose config accepts compose.yml" "$(cat "$ENVF.err")"
     fi
+    rm -f "$ENVF.json" "$ENVF.err"
+
+    echo "compose.wings.yml (Wings as a container): the exceptions are explicit and nothing else is allowed"
+    if env -u DOCKER_HOST "$REALDOCKER" compose --env-file "$ENVF" -f compose.yml -f compose.wings.yml --profile '*' config --format json >"$ENVF.json" 2>"$ENVF.err"; then
+        pass "docker compose config accepts compose.yml + compose.wings.yml"
+        out=$(python3 - "$ENVF.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+svc = c["services"]; bad = []
+BINDS = {"/var/run/docker.sock", "/var/lib/docker/containers", "/var/lib/pterodactyl", "/tmp/pterodactyl", "/var/log/pterodactyl", "/run/wings", "/etc/ssl/certs"}
+for name in ("wings", "egress-guard"):
+    s = svc[name]
+    if "@sha256:" not in s["image"] or ":latest" in s["image"]:
+        bad.append(f"{name}: image not pinned by digest: {s['image']}")
+    if "no-new-privileges:true" not in s.get("security_opt", []):
+        bad.append(f"{name}: no-new-privileges missing")
+    if s.get("privileged"):
+        bad.append(f"{name}: privileged")
+    if "wings" not in s.get("profiles", []):
+        bad.append(f"{name}: must sit behind the wings profile, so that a plain `up` never starts it")
+for name, s in svc.items():
+    if name != "egress-guard" and s.get("cap_add"):
+        bad.append(f"{name}: only egress-guard may add capabilities")
+    for v in s.get("volumes", []):
+        if "docker.sock" in str(v) and name != "wings":
+            bad.append(f"{name}: only wings may mount the Docker socket")
+        if v.get("type") == "bind" and name == "wings":
+            src, dst = v["source"].rstrip("/"), v["target"].rstrip("/")
+            if src not in BINDS:
+                bad.append(f"wings: bind mount {src} is not on the documented list")
+            if src != dst:
+                bad.append(f"wings: bind {src} -> {dst} breaks path identity (host path must equal container path)")
+    if name == "wings":
+        for p in s.get("ports", []):
+            if p.get("host_ip") != "127.0.0.1":
+                bad.append(f"wings: published port not on 127.0.0.1 by default: {p}")
+        api = [p for p in s.get("ports", []) if p.get("target") != 2022]
+        if len(api) != 1 or api[0].get("published") != str(api[0].get("target")):
+            bad.append("wings: the API port must be published on the same number it listens on (api.port = Daemon Port)")
+w = svc["wings"]
+if {"/run/wings", "/var/lib/pterodactyl", "/tmp/pterodactyl", "/var/log/pterodactyl"} - {v.get("source", "").rstrip("/") for v in w.get("volumes", [])}:
+    bad.append("wings: the four path-identity mounts must all be present")
+if [v for v in w["volumes"] if v["target"] == "/etc/ssl/certs" and not v.get("read_only")]:
+    bad.append("wings: /etc/ssl/certs must be read-only")
+if not any(v["target"] == "/etc/pterodactyl" and v["type"] == "volume" for v in w["volumes"]):
+    bad.append("wings: config must live in a named volume, not a bind mount of the repo tree")
+g = svc["egress-guard"]
+if g.get("network_mode") != "host" or g.get("cap_add") != ["NET_ADMIN"] or not g.get("healthcheck"):
+    bad.append("egress-guard: host network, exactly NET_ADMIN, and a healthcheck that proves the rules exist")
+hosts = sorted(n for n, s in svc.items() if s.get("network_mode") == "host")
+if hosts != ["cloudflared", "egress-guard", "mc-router"]:
+    bad.append(f"only cloudflared, mc-router and egress-guard may use host networking, got {hosts}")
+print("\n".join(bad) if bad else "OK")
+PY
+        )
+        assert_eq OK "$out" "rendered with Wings: socket and host binds only on wings, identity mounts, pinned, loopback ports, one added capability"
+    else
+        fail "docker compose config accepts compose.yml + compose.wings.yml" "$(cat "$ENVF.err")"
+    fi
+    out=$(env -u DOCKER_HOST "$REALDOCKER" compose --env-file "$ENVF" -f compose.yml -f compose.wings.yml config --services 2>&1 | sort | tr '\n' ' ')
+    assert_eq "cache database panel " "$out" "without the wings profile the Wings services are not part of the stack"
     rm -f "$ENVF.json" "$ENVF.err"
 fi
 
@@ -134,9 +196,38 @@ assert_mode "$SB/report.txt" 600 "report file is 600"
 p diagnose --output "$SB/report.txt"
 assert_eq 4 "$RC" "refuses to overwrite an existing report"
 
+echo "the suite cannot act on this machine (an unprotected run once stopped and removed a live stack)"
+gt=$(mktemp -d "${TMPDIR:-/tmp}/ptero-guard.XXXXXX")
+mkdir -p "$gt/tests/fakebin" "$gt/lib" "$gt/systemd" "$gt/eggs" "$gt/extensions" "$gt/config"
+cp tests/lib.sh "$gt/tests/"
+cp tests/fakebin/* "$gt/tests/fakebin/" && rm -f "$gt/tests/fakebin/docker"
+touch "$gt/ptero" "$gt/compose.yml" "$gt/config/versions.env" "$gt/config/deploy.env.example"
+out=$(PTERO_TEST_BASE_TMP="$gt" bash -c 'source "$1/tests/lib.sh"; sandbox; echo SURVIVED' _ "$gt" 2>&1); rc=$?
+assert_eq 99 "$rc" "lib.sh stops (exit 99) when a faked tool would resolve to something else than the sandbox copy"
+assert_contains "$out" "FATAL: docker resolves to" "and names the tool"
+assert_not_contains "$out" "SURVIVED" "and nothing after it runs"
+assert_eq 0 "$(find "$gt" -maxdepth 1 -name 'ptero-test.*' | wc -l | tr -d ' ')" "and it leaves no sandbox directory behind"
+out=$(PTERO_TEST_BASE_TMP="$gt/does-not-exist" bash -c 'source "$1/tests/lib.sh"; sandbox; echo SURVIVED' _ "$gt" 2>&1); rc=$?
+assert_eq 99 "$rc" "sandbox() stops when it cannot create its directory (an empty one would turn the repo copy into /root)"
+assert_not_contains "$out" "SURVIVED" "and nothing after it runs"
+cp tests/fakebin/docker "$gt/tests/fakebin/docker"
+chmod -x "$gt"/tests/fakebin/*
+out=$(PTERO_TEST_BASE_TMP="$gt" bash -c 'source "$1/tests/lib.sh"; sandbox; command -v docker; [[ -x $(command -v docker) ]] && echo EXECUTABLE' _ "$gt" 2>&1); rc=$?
+assert_eq 0 "$rc" "fakes that are NOT executable in the checkout (git stores them as 100644 on Windows) still work"
+assert_contains "$out" "EXECUTABLE" "because the sandbox copy is made executable"
+assert_contains "$out" "/fakebin/docker" "and is what docker resolves to"
+mkdir -p "$gt/realbin"; printf '#!/bin/sh\nexit 0\n' >"$gt/realbin/docker"; chmod +x "$gt/realbin/docker"
+out=$(cd "$R" && PATH="$gt/realbin:$PATH" ./ptero version 2>&1); rc=$?
+assert_eq 4 "$rc" "ptero itself refuses PTERO_TEST_MODE=1 when docker is not the test fake"
+assert_contains "$out" "not the test fake" "and says why"
+assert_eq "unix:///nonexistent/ptero-tests-never-reach-a-real-daemon.sock" "$DOCKER_HOST" "DOCKER_HOST points at a socket that does not exist, for any real client that slips through"
+rm -rf -- "$gt"
+
 echo "shellcheck"
-if [[ -n $REALDOCKER && ${SKIP_SHELLCHECK:-0} != 1 ]] && "$REALDOCKER" image inspect koalaman/shellcheck:stable >/dev/null 2>&1; then
-    out=$("$REALDOCKER" run --rm -v "$REPO":/mnt:ro koalaman/shellcheck:stable -x -S warning -e SC1091 ptero lib/*.sh 2>&1); rc=$?
+# The only deliberate use of the real docker in the suite: a throw-away shellcheck container with the repo mounted read-only.
+# lib.sh points DOCKER_HOST at a socket that does not exist, so these two calls clear it for themselves.
+if [[ -n $REALDOCKER && ${SKIP_SHELLCHECK:-0} != 1 ]] && env -u DOCKER_HOST "$REALDOCKER" image inspect koalaman/shellcheck:stable >/dev/null 2>&1; then
+    out=$(env -u DOCKER_HOST "$REALDOCKER" run --rm -v "$REPO":/mnt:ro koalaman/shellcheck:stable -x -S warning -e SC1091 ptero lib/*.sh 2>&1); rc=$?
     assert_eq 0 "$rc" "shellcheck (warnings and above) is clean"
     [[ $rc -ne 0 ]] && printf '%s\n' "$out" | head -n 40
 elif command -v shellcheck >/dev/null; then

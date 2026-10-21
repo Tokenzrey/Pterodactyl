@@ -51,12 +51,13 @@ load_config() {
     : "${GAMES_ENABLED:=no}" "${GAMES_DOMAIN:=}" "${GAMES_PORT:=25565}" "${GAMES_BACKEND_FIRST:=25600}" "${GAMES_BACKEND_LAST:=25699}"
     : "${GAMES_NODE_ID:=1}" "${GAMES_CONN_RATE:=10}" "${GAME_NET_SUBNET:=172.18.0.0/16}"
     : "${PANEL_EXTENSIONS:=}" "${PANEL_THEME:=classic}" "${PANEL_EXTENSIONS_ENABLED:=true}" "${ACTIVITY_PRUNE_DAYS:=365}" "${WINGS_TUNING:=yes}"
+    : "${WINGS_MODE:=host}"
     : "${FIREWALL_SSH_PORTS:=}" "${FIREWALL_SSH_ALLOW_CIDRS:=}" "${FIREWALL_SSH_LIMIT:=no}" "${FIREWALL_GAME_ALLOW_CIDRS:=}" "${FIREWALL_ROLLBACK_SECONDS:=300}"
     PTERO_PROJECT=${PTERO_PROJECT:-pterodactyl}
     PANEL_URL="https://${PANEL_FQDN:-}"
     WINGS_URL="https://${WINGS_FQDN:-}"
     export PANEL_URL WINGS_URL APP_TIMEZONE PANEL_BIND_PORT WINGS_API_PORT TUNNEL_METRICS_PORT PANEL_EDGE_SUBNET DB_MEM_LIMIT PANEL_MEM_LIMIT DB_BUFFER_POOL
-    export GAMES_PORT GAMES_CONN_RATE PANEL_EXTENSIONS_ENABLED ACTIVITY_PRUNE_DAYS
+    export GAMES_PORT GAMES_CONN_RATE PANEL_EXTENSIONS_ENABLED ACTIVITY_PRUNE_DAYS WINGS_MODE WINGS_SFTP_BIND GAME_NET_SUBNET
 }
 
 secret_path() { printf '%s/secrets/%s\n' "$PTERO_ROOT" "$1"; }
@@ -142,6 +143,9 @@ validate_config() {
     fi
     valid_cidr "${PANEL_EDGE_SUBNET}" || verr "PANEL_EDGE_SUBNET='${PANEL_EDGE_SUBNET}' must be a private IPv4 network written as base/prefix with a /16 to /29 prefix (e.g. 172.29.250.0/24)"
     [[ ${WINGS_REMOTE_MODE} == public || ${WINGS_REMOTE_MODE} == internal ]] || verr "WINGS_REMOTE_MODE must be 'public' or 'internal'"
+    [[ ${WINGS_MODE} == host || ${WINGS_MODE} == container ]] || verr "WINGS_MODE must be 'host' (binary + systemd) or 'container' (Compose service)"
+    # the container publishes its SFTP server on 2022, so the API port must not take it
+    [[ ${WINGS_MODE} == container && ${WINGS_API_PORT} == 2022 ]] && verr "WINGS_API_PORT must not be 2022 with WINGS_MODE=container (the SFTP port)"
     validate_games_and_firewall
     [[ ${WINGS_SFTP_BIND} =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || verr "WINGS_SFTP_BIND must be an IPv4 address (127.0.0.1, or 0.0.0.0 to expose SFTP deliberately)"
     [[ ${MIN_FREE_DISK_GB} =~ ^[0-9]+$ ]] || verr "MIN_FREE_DISK_GB must be a whole number"
@@ -149,7 +153,7 @@ validate_config() {
 
     # pinned images: every image must carry a digest, and none may float on :latest
     local v
-    for v in PANEL_IMAGE MARIADB_IMAGE REDIS_IMAGE CLOUDFLARED_IMAGE UTILITY_IMAGE MCROUTER_IMAGE INSTALLER_IMAGE; do
+    for v in PANEL_IMAGE MARIADB_IMAGE REDIS_IMAGE CLOUDFLARED_IMAGE UTILITY_IMAGE MCROUTER_IMAGE INSTALLER_IMAGE WINGS_IMAGE; do
         if [[ -z ${!v:-} ]]; then verr "$v is not set in config/versions.env"
         elif [[ ${!v} == *:latest || ${!v} != *@sha256:* ]]; then verr "$v must be pinned by digest (@sha256:...), not a floating tag: ${!v}"; fi
     done
@@ -209,7 +213,7 @@ export_stack_env() {
     REDIS_PASSWORD=$(read_secret redis_password)
     TUNNEL_TOKEN=$(read_secret tunnel_token || true)
     export DB_PASSWORD REDIS_PASSWORD TUNNEL_TOKEN PANEL_FQDN ADMIN_EMAIL
-    export PANEL_IMAGE MARIADB_IMAGE REDIS_IMAGE CLOUDFLARED_IMAGE MCROUTER_IMAGE
+    export PANEL_IMAGE MARIADB_IMAGE REDIS_IMAGE CLOUDFLARED_IMAGE MCROUTER_IMAGE WINGS_IMAGE UTILITY_IMAGE
 }
 
 tunnel_enabled() { [[ -s $(secret_path tunnel_token) ]]; }

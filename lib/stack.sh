@@ -4,14 +4,18 @@
 
 # ---- docker compose wrapper -----------------------------------------------------------------
 compose() {
-    local profiles=()
+    local files=(-f "$PTERO_ROOT/compose.yml") profiles=()
     tunnel_enabled && profiles=(--profile tunnel)
     [[ ${GAMES_ENABLED:-no} == yes ]] && profiles+=(--profile games)
-    docker compose -p "$PTERO_PROJECT" -f "$PTERO_ROOT/compose.yml" ${profiles[@]+"${profiles[@]}"} "$@"
+    # compose.wings.yml (Wings as a container) is loaded only in that mode. Its services sit behind the `wings` profile, which
+    # only the `wings` commands enable (compose_wings), so a plain `up` never starts Wings before it has a configuration.
+    [[ ${WINGS_MODE:-host} == container ]] && files+=(-f "$PTERO_ROOT/compose.wings.yml")
+    docker compose -p "$PTERO_PROJECT" "${files[@]}" ${profiles[@]+"${profiles[@]}"} "$@"
 }
-compose_all() { docker compose -p "$PTERO_PROJECT" -f "$PTERO_ROOT/compose.yml" --profile '*' "$@"; }
+# every service of every file and profile: used by `down`, so it also removes the Wings container if there is one
+compose_all() { docker compose -p "$PTERO_PROJECT" -f "$PTERO_ROOT/compose.yml" -f "$PTERO_ROOT/compose.wings.yml" --profile '*' "$@"; }
 
-svc_id() { compose ps -q "$1" 2>/dev/null | head -n1; }
+svc_id() { compose --profile wings ps -q "$1" 2>/dev/null | head -n1; }
 svc_state() { # healthy|unhealthy|starting|running|exited|absent
     local id; id=$(svc_id "$1")
     [[ -n $id ]] || { echo absent; return; }
@@ -111,6 +115,7 @@ cmd_setup() {
     games_enabled && info "game router enabled: Minecraft hostnames *.${GAMES_DOMAIN} on port ${GAMES_PORT}"
     compose up -d --wait --wait-timeout 300 || die "a service is unhealthy: ./ptero status ; ./ptero logs"
     wait_until 120 "the Panel to answer on 127.0.0.1:${PANEL_BIND_PORT}" panel_http_ok || die "Panel does not answer: ./ptero logs panel"
+    wings_container_autostart
 
     # Panel extras. A failure here never undoes the working Panel: it is reported and can be re-run on its own.
     info "applying Panel extensions and theme (${PANEL_EXTENSIONS:-none}; theme ${PANEL_THEME})"
@@ -141,6 +146,7 @@ cmd_up() {
     prepare 0
     games_prepare_routes || die "cannot create runtime/mc-router/routes.json"
     compose up -d --wait --wait-timeout 300 || die "a service is unhealthy: ./ptero status"
+    wings_container_autostart
 }
 
 cmd_down() {
@@ -167,7 +173,19 @@ cmd_status() {
         [[ $s == running || $s == healthy ]] || rc=1
     fi
     if panel_http_ok; then printf '%-14s %s\n' panel-http "ok (127.0.0.1:${PANEL_BIND_PORT})"; else printf '%-14s %s\n' panel-http "NOT ANSWERING"; rc=1; fi
-    if have systemctl && systemctl cat wings >/dev/null 2>&1; then
+    if wings_container_mode; then
+        s=$(svc_state wings)
+        if [[ $s == absent ]]; then printf '%-14s %s\n' wings-container "not installed (./ptero wings install)"
+        else
+            printf '%-14s %s\n' wings-container "$s"
+            [[ $s == running || $s == healthy ]] || rc=1
+            code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${WINGS_API_PORT}/" 2>/dev/null)
+            if [[ -z $code || $code == 000 ]]; then printf '%-14s %s\n' wings-api "NOT ANSWERING on 127.0.0.1:${WINGS_API_PORT}"; rc=1
+            else printf '%-14s %s\n' wings-api "answers (HTTP $code; 401 is normal without credentials)"; fi
+            s=$(svc_state egress-guard); printf '%-14s %s\n' egress-guard "$s"
+            [[ $s == healthy ]] || rc=1
+        fi
+    elif have systemctl && systemctl cat wings >/dev/null 2>&1; then
         s=$(systemctl is-active wings 2>/dev/null); printf '%-14s %s\n' wings-service "$s"
         [[ $s == active ]] || rc=1
         code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${WINGS_API_PORT}/" 2>/dev/null)
@@ -191,7 +209,9 @@ cmd_logs() { # logs [-f] [--tail N] [service]
         shift
     done
     [[ $tail =~ ^[0-9]+$ ]] || die "--tail needs a number" $EX_USAGE
-    if [[ $svc == wings ]]; then
+    if wings_container_mode && [[ $svc == wings || $svc == egress-guard ]]; then
+        compose_wings logs --tail "$tail" ${follow[@]+"${follow[@]}"} "$svc"
+    elif [[ $svc == wings ]]; then
         have journalctl || die "journalctl not available"
         journalctl -u wings -n "$tail" --no-pager ${follow[@]+"${follow[@]}"}
     else
@@ -274,6 +294,7 @@ cmd_verify() {
 # Compares the images the running containers use with the pins in config/versions.env.
 drift_report() {
     local svc ref id cur pair var drift=0
+    # Wings is not compared: like the host binary, it is updated by `./ptero wings update`, never by `update`.
     for pair in database:MARIADB_IMAGE cache:REDIS_IMAGE panel:PANEL_IMAGE cloudflared:CLOUDFLARED_IMAGE; do
         svc=${pair%%:*}; var=${pair##*:}; ref=${!var}
         id=$(svc_id "$svc"); [[ -n $id ]] || continue

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ptero: install and operate Pterodactyl Panel (Docker) + Wings (systemd) behind a Cloudflare Tunnel.
+# ptero: install and operate Pterodactyl Panel (Docker) + Wings (systemd, or a Compose service) behind a Cloudflare Tunnel.
 # Run ./ptero help. Documentation: README.md and docs/.
 set -u -o pipefail
 umask 077
@@ -11,6 +11,16 @@ fi
 PTERO_ROOT=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd -P)
 export PTERO_ROOT
 PTERO_VERSION=0.1.0
+
+# PTERO_TEST_MODE=1 (tests/ only) skips the root check, so it must never meet a real Docker daemon: an unprotected test run once
+# stopped and removed a live stack. Refuse unless `docker` is the test fake (or absent, which tests use to check the preflight).
+if [[ ${PTERO_TEST_MODE:-0} == 1 ]]; then
+    _d=$(command -v docker 2>/dev/null || true)
+    if [[ -n $_d && $_d != */fakebin/docker ]]; then
+        echo "ptero: PTERO_TEST_MODE=1 but docker is $_d, not the test fake: refusing to run" >&2; exit 4
+    fi
+    unset _d
+fi
 
 # shellcheck source=lib/common.sh
 for _lib in common config preflight stack backup wings diag games firewall egg ext; do
@@ -33,6 +43,7 @@ First install
   ./ptero admin create             first administrator (interactive, password never on a command line)
   ./ptero tunnel info              the two routes to add in the Cloudflare dashboard
   sudo ./ptero wings install [--config FILE]     Wings binary + systemd unit (+ node config from the Panel)
+                                   (WINGS_MODE=container, e.g. Docker Desktop: no sudo; Wings and its egress guard run as Compose services)
 
 Daily
   ./ptero status                   health of every component (exit 1 if degraded)
@@ -65,7 +76,7 @@ Backup and change
   ./ptero restore [--yes] [--identity KEY] <backup>      replaces DB + APP_KEY after confirmation
   ./ptero restore-config <backup>                        fill an empty checkout with config and secrets
   ./ptero update [--check] [--yes]                       backup, pull pinned images, migrate, restart
-  sudo ./ptero wings update | configure FILE | status | logs
+  sudo ./ptero wings update | configure FILE | status | logs      (no sudo with WINGS_MODE=container)
 
 Other
   ./ptero compose <args>           docker compose with the right project, env and secrets

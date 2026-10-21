@@ -54,7 +54,9 @@ Halaman ini mendaftar setiap perintah `./ptero` dengan sintaks, hak akses, apa y
 
 Rollback sebuah update dijelaskan di [Operasi: update dan rollback](operations.md#update-dan-rollback).
 
-## Wings (host)
+## Wings
+
+Tabel ini untuk `WINGS_MODE=host` (bawaan). Perintah yang sama tersedia dengan `WINGS_MODE=container`, tanpa sudo, dan bekerja pada container Wings, volume config, dan egress guard; perbedaannya ada di paragraf di bawah tabel.
 
 | Perintah | Hak | Efek |
 |---|---|---|
@@ -64,7 +66,9 @@ Rollback sebuah update dijelaskan di [Operasi: update dan rollback](operations.m
 | `./ptero wings status` | | versi biner, status layanan, versi yang dipatok, dan kode HTTP API |
 | `./ptero wings logs [N]` | | `N` baris terakhir journal Wings (bawaan 100), dengan rahasia disamarkan |
 
-Kunci yang ditambal pada config, dan alasannya, ada di [Operasi: Wings](operations.md#wings-dari-node-di-panel-sampai-hijau).
+Dengan `WINGS_MODE=container`: `wings install [--config FILE]` meminta konfirmasi, menambal config ke volume `pterodactyl_wings_etc`, menarik `WINGS_IMAGE`, dan menjalankan `wings` dan `egress-guard` (ditolak, kode 4, bila layanan Wings native aktif); tanpa config di volume tidak ada yang dijalankan. `configure FILE` menulis config ke volume dan me-restart container bila ada. `update` menarik image yang dipatok dan membuat ulang container. `status` menampilkan mode, state container, digest, state guard, dan kode HTTP API. `logs [N]` membaca log container `wings` dan `egress-guard`. `./ptero firewall egress ...` ditolak di mode ini: aturannya dipasang oleh `egress-guard`.
+
+Kunci yang ditambal pada config, dan alasannya, ada di [Operasi: Wings](operations.md#wings-dari-node-di-panel-sampai-hijau) dan [Operasi: Wings sebagai container](operations.md#wings-sebagai-container-wings_modecontainer).
 
 ## Firewall, egress guard, dan audit
 

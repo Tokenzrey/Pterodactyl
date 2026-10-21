@@ -241,6 +241,9 @@ shred -u ~/node.yml        # berkas itu masih berisi token node
 
 Perintah meminta konfirmasi, lalu mengunduh biner Wings yang dipatok, **menolak memasangnya bila sha256 tidak sama dengan pin**, memasang biner dan unit systemd, memeriksa serta menambal konfigurasi, menyimpannya di `/etc/pterodactyl/config.yml` (mode 600), menyalakan layanan, dan menunggu API menjawab (batas 180 detik). Start pertama bisa memakan beberapa menit karena Wings membuat jaringan Docker.
 
+> [!NOTE]
+> **Docker Desktop (WSL2).** Perintah ini butuh Docker Engine dengan systemd. Docker Desktop tidak punya `docker.service`, dan tunnel (jaringan host) berjalan di VM Docker Desktop sehingga tidak menjangkau Wings di distro. Di sana pakai `WINGS_MODE=container` dan `./ptero wings install --config ~/node.yml` tanpa sudo: [Operasi: Wings sebagai container](operations.md#wings-sebagai-container-wings_modecontainer).
+
 **Periksa:**
 
 ```text

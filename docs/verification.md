@@ -2,7 +2,7 @@
 
 > **Jenis:** Referensi · **Untuk:** peninjau, pemelihara, dan operator yang menilai seberapa jauh bisa mempercayai repositori ini · **Tanggal:** 2026-10-20 (uji lanjutan; uji awal 2026-10-19)
 
-Halaman ini mencatat setiap pengujian: apa yang dijalankan, pada apa, hasilnya, dan apa yang belum pernah dijalankan. Ringkasnya: logika dan urutan diuji otomatis dengan tiruan (524 pemeriksaan shell dan 45 test unit Python, semuanya lulus); Panel, ekstensi, router game, installer, Wings, ufw, dead-man switch, dan egress guard dijalankan pada komponen asli di mesin uji; **belum ada pemasangan di VPS Linux nyata, belum ada akun Cloudflare nyata, dan belum ada Wings yang menjalankan server game.**
+Halaman ini mencatat setiap pengujian: apa yang dijalankan, pada apa, hasilnya, dan apa yang belum pernah dijalankan. Ringkasnya: logika dan urutan diuji otomatis dengan tiruan (618 pemeriksaan shell dan 45 test unit Python, semuanya lulus); Panel, ekstensi, router game, installer, Wings, ufw, dead-man switch, dan egress guard dijalankan pada komponen asli di mesin uji; **belum ada pemasangan di VPS Linux nyata, belum ada akun Cloudflare nyata, dan belum ada server Minecraft nyata yang dijalankan lewat Wings** (Wings sebagai container menjalankan container game uji di Docker Desktop; lihat bagian di bawah).
 
 ## Cara membaca halaman ini
 
@@ -43,21 +43,21 @@ Tiga label dipakai konsisten di seluruh dokumentasi:
 
 ## Test otomatis
 
-Perintah: `bash tests/run.sh`. Hasil 2026-10-20: **524 pemeriksaan shell** (termasuk `t_games.sh` dan `t_installer.sh` yang juga menjalankan **45 test unit Python**: 17 + 28), semuanya lulus, `ALL TEST FILES PASSED`.
+Perintah: `bash tests/run.sh`. Hasil 2026-10-21: **618 pemeriksaan shell** (termasuk `t_games.sh` dan `t_installer.sh` yang juga menjalankan **45 test unit Python**: 17 + 28), semuanya lulus, `ALL TEST FILES PASSED`.
 
 | File | Pemeriksaan | Cakupan |
 |---|---|---|
-| `t_config.sh` | 56 | init idempoten; validasi (placeholder, skema, host, email, beta, port, subnet, zona waktu); `deploy.env` tidak pernah dieksekusi; image `:latest` ditolak; rahasia lemah atau longgar; token tunnel |
+| `t_config.sh` | 64 | init idempoten; validasi (placeholder, skema, host, email, beta, port, subnet, zona waktu, `WINGS_MODE`, `WINGS_IMAGE`); `deploy.env` tidak pernah dieksekusi; image `:latest` ditolak; rahasia lemah atau longgar; token tunnel |
 | `t_stack.sh` | 57 | setup instalasi baru, ulang, dan keadaan berbahaya (APP_KEY hilang, migrasi tertunda); kegagalan migrate, pull, dan docker; subnet dan port bentrok (termasuk `GAME_NET_SUBNET`, `pterodactyl_nw`, dan bridge `pterodactyl0`); status, verify, update (urutan, abort bila backup gagal) |
 | `t_backup.sh` | 53 | isi dan izin backup, checksum, dump gagal atau terpotong, restore (semua penolakan sebelum perubahan, jalur aman, impor gagal), restore-config, backup terenkripsi (age palsu) |
-| `t_wings.sh` | 83 | pemeriksaan dan penambalan config Wings (hanya baris yang dimaksud berubah, termasuk SFTP loopback, `bind_address` dihilangkan = semua antarmuka, subnet, gateway, dan `enable_icc` jaringan game, JSON dari Panel dibaca, token tidak dicetak), pemasangan biner dengan sha256, `install --config`, configure, update (pin tidak cocok ditolak, rollback biner lama) |
+| `t_wings.sh` | 154 | mode container (install tanpa dan dengan config, config di volume mode 600 dan tidak di pohon repositori, label volume, `up` memulihkan Wings, `configure` dan backup config, `update`, `logs`, `status`, penolakan saat Wings native aktif, perintah egress host ditolak, `diagnose` tanpa token), `--container` di `wings_config.py`; pemeriksaan dan penambalan config Wings (hanya baris yang dimaksud berubah, termasuk SFTP loopback, `bind_address` dihilangkan = semua antarmuka, subnet, gateway, dan `enable_icc` jaringan game, JSON dari Panel dibaca, token tidak dicetak), pemasangan biner dengan sha256, `install --config`, configure, update (pin tidak cocok ditolak, rollback biner lama) |
 | `t_firewall.sh` | 64 | rencana, urutan aturan (SSH sebelum enable), dead-man switch, semua jalur penolakan lock-out (SSH tak terdeteksi, port sesi di luar daftar, allow-list tanpa alamat Anda), kegagalan ufw, aturan egress (idempoten, subnet Wings menang), audit listener dan container |
 | `t_games_cli.sh` | 67 | validasi konfigurasi game, penyimpanan kunci (jenis kunci salah ditolak, tidak pernah di-echo), `games sync/list/status/dns/timer` terhadap mock Panel, reload router hanya bila tabel berubah, `game create` (penolakan), `egg build/install` (kunci tidak di command line) |
 | `t_games.sh` | 5 (+17 unit) | `games.py` terhadap mock Panel stateful: hanya server Minecraft berloopback yang dirutekan, tabrakan nama menolak dan tidak menulis, Panel mati atau kunci salah tidak menghapus tabel, rencana tidak membuat apa pun, apply membuat alokasi, server, dan rute, verifikasi install lewat `launch.args`, penolakan; berkas egg identik dengan hasil build sumbernya |
 | `t_installer.sh` | 1 (+28 unit) | installer modpack terhadap mock Modrinth, CurseForge, dan CDN: hash salah membatalkan, path berbahaya, host unduhan di luar allow-list, client-only dilewati, reinstall menjaga dunia, config, dan mod milik pemilik, probe CurseForge hanya metadata, kunci API tidak dikirim ke host unduhan |
 | `t_ext.sh` | 54 | `extensions.lock` (format, pin tag rilis, paket lokal cocok dengan sha256 dan manifestnya), `ext vet` (bersih versus mencurigakan), aturan konfigurasi, install dan reconcile terhadap Panel palsu: backup lebih dulu, idempoten, drift versi memasang ulang satu paket, byte atau versi yang beda, backup gagal, dan install gagal ditolak, saklar darurat, tema kembali ke classic tanpa menghapus apa pun, `setup` menerapkan keadaan yang diinginkan dan tidak gagal bila satu ekstensi gagal |
 | `t_docs.sh` | 10 | tautan relatif dan anchor di `README.md` dan `docs/*.md` ada, `docs/README.md` mengindeks semua halaman, bagian yang dirujuk pesan di `lib/` masih ada, dan pemeriksa benar-benar menangkap tautan rusak (diuji dengan checkout palsu) |
-| `t_static.sh` | 74 | `bash -n`; **`docker compose config` nyata**: semua port `127.0.0.1`, digest, `no-new-privileges`, tanpa socket Docker, satu-satunya bind mount adalah tabel router read-only, `backend` internal, hanya cloudflared dan mc-router berjaringan host (read-only, `cap_drop ALL`); pemindaian rahasia; tanpa `curl \| sh`, tanpa penghapusan volume atau backup; redaksi; diagnosa tanpa rahasia; **shellcheck bersih** (bila tersedia) |
+| `t_static.sh` | 89 | pengaman suite (berhenti bila tiruan tidak dipakai, bila sandbox gagal dibuat, `ptero` menolak docker asli; tiruan tanpa bit eksekusi tetap bekerja); **`compose.wings.yml` dirender nyata**: socket dan bind host hanya di `wings`, path identik, digest, port loopback, satu capability tambahan; `bash -n`; **`docker compose config` nyata**: semua port `127.0.0.1`, digest, `no-new-privileges`, tanpa socket Docker, satu-satunya bind mount adalah tabel router read-only, `backend` internal, hanya cloudflared dan mc-router berjaringan host (read-only, `cap_drop ALL`); pemindaian rahasia; tanpa `curl \| sh`, tanpa penghapusan volume atau backup; redaksi; diagnosa tanpa rahasia; **shellcheck bersih** (bila tersedia) |
 
 ## Pemeriksaan pada sistem nyata (di luar test otomatis)
 
@@ -104,6 +104,24 @@ Perintah: `bash tests/run.sh`. Hasil 2026-10-20: **524 pemeriksaan shell** (term
 | Install server Forge 1.20.1 (modpack) lewat Wings | **selesai**: `launch.args` ada, direktori JRE sementara `.ptero-jre` dihapus. Percobaan pertama gagal `No space left on device`: `tmpfs_size` 100 MB dari tuning terlalu kecil untuk JRE. Tuning tmpfs dihapus; JRE sekarang di folder server lalu dihapus setelah install |
 | Wings 1.13.4 menandai install `completed` walau skrip keluar non-nol (terlihat: exit 127 dan traceback) | `game create` memeriksa `launch.args` lewat Client API (`ptlc_`, `./ptero key set client`) dan mendapat 200. Tanpa kunci client, hanya peringatan "not verified" |
 
+### Wings sebagai container di Docker Desktop (daemon nyata)
+
+Project Compose terpisah `ptero-wtest` (Panel segar tanpa tunnel, port 18081 dan 18443, subnet edge `172.29.251.0/24`), Wings 1.13.4 dari `WINGS_IMAGE`, Docker Desktop 29.9.1 pada WSL2, 2026-10-21. Keadaan daemon (container, volume, jaringan, dan aturan iptables di VM) dicatat sebelum uji dan dibandingkan sesudahnya.
+
+| Diperiksa | Hasil |
+|---|---|
+| Penyebab kegagalan `/etc/machine-id` yang lama | dua container game sisa uji lama punya bind `/run/wings/machine-id/<uuid>` ke `/etc/machine-id`, dan path sumber itu kini berupa **direktori**. Percobaan terpisah dengan container berisi `docker.sock`: dengan mount identitas, berkas yang ditulis container terbaca oleh container saudara (lewat `--mount` maupun `-v`); tanpa mount identitas, container saudara melihat direktori |
+| Preflight dan `wings install` terhadap layanan Wings native yang **nyata** (aktif) | `[FAIL]` dengan penjelasan, `wings install` kode keluar 4, tidak ada container yang berubah. Dengan layanan itu disembunyikan (shim hanya untuk uji), preflight hijau |
+| `setup`, lalu `wings install --config` dari `p:node:configuration` | config ditambal dan masuk volume `ptero-wtest_wings_etc` (mode 600, berlabel Compose, tanpa salinan di pohon repositori); `wings` berstatus `running`, `egress-guard` `healthy`; API menjawab 401 |
+| Panel ke Wings, dan Wings ke Panel | dari container Panel, `DaemonConnection::forNode(...)->request('get', '/api/system')` menjawab HTTP 200 (`version 1.13.4`). Wings memuat daftar server dari Panel lewat `http://panel:80` |
+| Jalur tunnel | dari container berjaringan host (namespace daemon, tempat `cloudflared` berjalan), `http://127.0.0.1:18443/api/system` menjawab 401 |
+| Server uji (egg Vanilla, `skip_scripts`, image `yolks:java_17`, startup `sleep 3600`) dibuat lewat API Panel dan dijalankan lewat Client API | container game berjalan; `/etc/machine-id` berupa **berkas** 33 byte berisi ID 32 heksadesimal, sama dengan berkas di `/run/wings/machine-id/<uuid>`; jaringan `pterodactyl_nw` (172.22.0.2); alokasi hanya di `127.0.0.1:25570` (tcp dan udp); data di `/var/lib/pterodactyl/volumes/<uuid>` milik uid 988. Percobaan pertama memakai startup `sh -c '...'` dan keluar langsung: entrypoint `yolks` mengevaluasi string startup tanpa kutip, bukan masalah Wings |
+| Egress guard | aturan `DOCKER-USER` (lima drop, satu `RETURN` conntrack di atasnya) dan `INPUT` terpasang. Dari dalam container game, `192.168.65.7:53`, `192.168.65.254:80`, `169.254.169.254:80`, `10.0.0.1:80`, dan gateway jaringan game **diblokir**; `1.1.1.1:443` **terjangkau** |
+| Siklus hidup | `./ptero down`: container game tetap berjalan dan volume config tetap; `./ptero up`: Wings dan guard kembali dari config dan Wings mencatat `detected server is running, re-attaching to process`; `wings update`; `wings logs`; `backup` memuat `wings/config.yml`; `diagnose` tidak memuat token maupun token id; menghapus server lewat API menghapus container dan datanya |
+| Pembersihan | container, volume, jaringan, dan aturan iptables daemon **identik** dengan keadaan sebelum uji |
+
+Batas: server uji bukan server Minecraft dan tidak menjalankan modpack. Tidak diuji: WebSocket konsol, route Cloudflare dengan domain nyata, restart Docker Desktop. Layanan Wings native di mesin uji disembunyikan dengan shim selama uji, dan port SFTP uji memakai `127.0.0.2` karena layanan itu memegang `127.0.0.1:2022` (temuan nyata: Docker Desktop menolak mempublikasikan 2022, `ports are not available`).
+
 ### mc-router dengan jaringan host dan handshake Minecraft nyata
 
 | Diperiksa | Hasil |
@@ -119,7 +137,7 @@ Dicatat, tidak disembunyikan.
 
 | Diperiksa | Hasil |
 |---|---|
-| Container game yang dibuat Wings dijalankan di Wings yang ada di dalam container (Docker Desktop) | **gagal**: bind mount `/etc/machine-id` dari Wings ke container game gagal (`not a directory`). Server uji "Survival" dan "Kampung" berhenti di status install; container game tidak pernah jalan. Ini batasan susunan uji, bukan bukti untuk host Linux dengan Wings sebagai service systemd biasa, yang belum diuji |
+| Container game yang dibuat Wings dijalankan di Wings yang ada di dalam container (Docker Desktop), uji awal | **gagal**: bind mount `/etc/machine-id` dari Wings ke container game gagal (`not a directory`). Server uji "Survival" dan "Kampung" berhenti di status install; container game tidak pernah jalan. Penyebabnya mount identitas `/run/wings` yang tidak ada pada susunan uji: daemon membuat direktori di path sumber. **Diperbaiki dan dibuktikan** dengan `compose.wings.yml` ([bagian di atas](#wings-sebagai-container-di-docker-desktop-daemon-nyata)) |
 | apt dan apk dari dalam container | diblokir proxy TLS di jaringan uji; paket ufw `.deb` diunduh di host lalu dipasang offline |
 | Image installer di uji | dibangun lokal (`ptero-installer-test:py`) dari base Python, bukan image digest yang di-pull |
 | Opsi `game create --label` | **cacat yang diketahui, ditemukan saat menulis dokumentasi:** hanya memengaruhi alamat yang ditampilkan di rencana dan pemeriksaan bentrok; rute yang ditulis selalu memakai slug nama server. Lihat [Referensi perintah](commands.md#opsi-game-create) |
@@ -141,13 +159,19 @@ Pengujian nyata menemukan masalah yang tidak tertangkap test otomatis. Daftar in
 | Install gagal `No space left on device` | tmpfs dihapus dari tuning; JRE sementara di folder server |
 | Wings gagal start karena jaringan lama (subnet berbeda, nama bridge `pterodactyl0`, `Pool overlaps`) | pemeriksaan preflight dan pesan yang menyebut perbaikannya |
 | Opsi `--loader` tidak ada | ditambahkan, harus cocok dengan pack |
+| `bash tests/run.sh` di checkout WSL memakai `docker`, `curl`, dan `systemctl` **asli** (tiruan tidak punya bit eksekusi karena Git mencatatnya `100644`) dan menghentikan serta menghapus container stack yang hidup (volume selamat) | test menyalin tiruan dan memberinya bit eksekusi sendiri; `assert_fakes_first` berhenti (99) bila alat tidak resolve ke tiruan; `DOCKER_HOST` ke socket yang tidak ada; `ptero` menolak `PTERO_TEST_MODE=1` dengan docker asli; test regresi di `t_static.sh` |
+| `sandbox()` yang gagal membuat direktori menjadikan salinan repositori `/root` | berhenti (99) bila direktori tidak terbentuk; direktori dasar diingat antar sandbox |
+| Dua `restore` dalam detik yang sama bertabrakan di nama `pre-restore` (test flaky; produk gagal aman, tidak ada yang berubah) | `sleep 1` sebelum restore terenkripsi, seperti restore sebelumnya |
+| Volume `wings_etc` dibuat tanpa label Compose, sehingga Compose memperingatkan di setiap start | dibuat dengan label proyek dan volume; ada test |
+| Wings container gagal mempublikasikan SFTP 2022 selama Wings native memegangnya | preflight dan `wings install` menolak selama layanan native aktif |
 
 ## Belum diverifikasi
 
 | Hal | Mengapa | Risiko |
 |---|---|---|
 | Pemasangan di VPS Linux nyata (ufw, iptables, systemd, `network_mode: host` di host Linux) | ufw, iptables, dan dead-man sudah jalan di container uji (Docker Desktop), tetapi aturan belum pernah diterapkan di host VPS | **sedang**: buka sesi SSH cadangan sebelum `firewall apply` pertama. Setelah apply, periksa `systemctl list-timers` dan `./ptero audit` |
-| Wings menjalankan container game (start, konsol, jaringan Docker di host Linux) | Docker Desktop: bind `/etc/machine-id` gagal (lihat bagian "Yang gagal"). Start server belum pernah berhasil lewat Wings | **sedang-tinggi** di VPS: ini yang diuji pertama, dengan satu server kecil yang bisa dihapus |
+| Wings systemd di host Linux menjalankan container game (start, konsol, jaringan Docker) | berhasil di Docker Desktop dengan Wings sebagai container (bagian di atas); Wings systemd di host Linux belum pernah menjalankan server | **sedang** di VPS: ini yang diuji pertama, dengan satu server kecil yang bisa dihapus |
+| Mode container: route Cloudflare dengan domain nyata, WebSocket konsol, restart Docker Desktop (aturan guard dipasang lagi?), modpack Minecraft nyata | butuh akun, browser, atau modpack nyata | sedang |
 | mc-router di host Linux dengan firewall nyata dan port publik | handshake sudah diuji, tetapi tidak dengan firewall nyata. Di Docker Desktop port "host" tidak terlihat dari WSL, sehingga `games status` melaporkan "NOT listening" pada uji; log router menunjukkan mendengar | rendah-sedang |
 | `game create` sampai server berjalan | pembuatan server, install lewat Wings, dan verifikasi `launch.args` sudah diuji (Kampung); start container belum | sedang |
 | CurseForge dengan kunci nyata | tidak ada kunci CurseForge pada sesi ini (dan kunci milik orang lain tidak dipakai) | sedang: alur diuji dengan mock dan kode berbagi logika dengan alat lama yang pernah berhasil pada pack nyata |

@@ -54,6 +54,20 @@ Halaman ini menyatakan apa yang dilindungi, dari siapa, dengan kontrol apa, dan 
 | Tidak ada operasi yang menghapus volume, backup, atau data Wings | seluruh `lib/` | **Otomatis** (pemindaian kode di `t_static.sh`) |
 | Laporan `diagnose` dan `wings logs` menyamarkan rahasia | `lib/redact.py` | **Otomatis**; **Nyata** (kata sandi DB muncul 0 kali dalam laporan) |
 
+## Wings sebagai container: risiko tambahan
+
+Hanya berlaku dengan `WINGS_MODE=container` (opsional, untuk Docker Desktop; [Operasi](operations.md#wings-sebagai-container-wings_modecontainer)). Mode `host` tidak berubah, dan `compose.yml` tetap tanpa socket Docker dan tanpa bind mount selain tabel router.
+
+| Hal | Risiko | Pembatas |
+|---|---|---|
+| Container Wings memegang `/var/run/docker.sock` | setara root di host Docker, seperti Wings systemd yang berjalan sebagai root; bila Wings dibobol, daemon dikuasai | tidak lebih buruk dari mode host, dan tidak lebih aman. Hanya Wings yang boleh memegang socket |
+| Bind mount path daemon: `/var/lib/pterodactyl`, `/tmp/pterodactyl`, `/var/log/pterodactyl`, `/run/wings`, `/var/lib/docker/containers`, dan `/etc/ssl/certs` (read-only) | container dapat membaca dan menulis di path itu di sisi daemon | daftar tetap; `t_static.sh` menolak bind lain, dan menolak bind yang path host-nya berbeda dari path container |
+| `egress-guard`: jaringan host daemon dan `NET_ADMIN` | satu-satunya capability tambahan di seluruh stack; mengubah iptables daemon | hanya aturan untuk `GAME_NET_SUBNET`; image `alpine` dengan digest; `apk add iptables` dijalankan saat start; `healthy` hanya bila aturan ada |
+| Token node | config Wings (berisi token) ada di volume bernama, bukan di pohon repositori, dan ikut `./ptero backup` | `diagnose` tidak memuatnya (diuji); berkas `node.yml` yang Anda tempel tetap harus dihapus |
+| Pemisahan berkas | pengecualian ada di `compose.wings.yml`, tidak di `compose.yml` | `t_static.sh` memeriksa kedua berkas dengan aturannya masing-masing |
+
+Dari dalam container game, LAN, gateway host Docker Desktop, alamat metadata cloud, dan jaringan privat lain diblokir, sedangkan internet publik tetap terjangkau (diuji pada daemon nyata).
+
 ## Risiko sisa
 
 Risiko berikut tetap ada setelah semua kontrol di atas dipasang. Beberapa adalah keputusan Anda, bukan cacat.

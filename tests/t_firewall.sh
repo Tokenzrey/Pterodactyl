@@ -120,7 +120,7 @@ rm -f "$FAKE_STATE/ipt.chain"
 sed -i 's#^GAME_NET_SUBNET=.*#GAME_NET_SUBNET=172.18.0.0/16#' "$R/config/deploy.env"
 
 echo "audit"
-export PTERO_SS=$REPO/tests/fakebin/fakess
+export PTERO_SS=$SB/fakebin/fakess
 printf '%s\n' 'tcp   LISTEN 0 128  0.0.0.0:2222  0.0.0.0:*' 'tcp   LISTEN 0 128  [::]:2222  [::]:*' 'tcp   LISTEN 0 4096 0.0.0.0:25565 0.0.0.0:*' \
     'tcp   LISTEN 0 4096 127.0.0.1:8081 0.0.0.0:*' 'tcp   LISTEN 0 4096 [::1]:443 [::]:*' 'udp   UNCONN 0 0 127.0.0.53%lo:53 0.0.0.0:*' \
     'udp   UNCONN 0 0 0.0.0.0:68 0.0.0.0:*' >"$FAKE_STATE/ss-all.txt"

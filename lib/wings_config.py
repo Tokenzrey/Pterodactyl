@@ -238,7 +238,10 @@ def set_scalar(lines, idx, key, value):
     return True
 
 
-def check(lines, remote=None, port=None):
+def check(lines, remote=None, port=None, container=False):
+    """Structural errors and advisory warnings. With container=True the file is for Wings running inside a container: there the
+    API and SFTP servers must listen on every interface (the published port is what is loopback-only), and only SFTP port 2022
+    is published."""
     errors, warnings = [], []
     top = top_index(lines)
     for k in ("uuid", "token_id", "token", "api", "system", "remote"):
@@ -259,11 +262,21 @@ def check(lines, remote=None, port=None):
     if port and get_api(lines, "port") != str(port):
         warnings.append(f"api.port is '{get_api(lines, 'port')}', expected '{port}'")
     host = get_api(lines, "host")
+    sftp = find_path(lines, ["system", "sftp", "bind_address"])
+    sftp_addr = scalar_at(lines[sftp], "bind_address") if sftp is not None else None
+    if container:
+        if host != "0.0.0.0":
+            warnings.append(f"api.host is '{host}': inside the container Wings must listen on 0.0.0.0, or the published port cannot reach it")
+        if sftp_addr is not None and sftp_addr != "0.0.0.0":
+            warnings.append(f"system.sftp.bind_address is '{sftp_addr}': inside the container SFTP must listen on 0.0.0.0, or the published port cannot reach it")
+        sftp_port = find_path(lines, ["system", "sftp", "bind_port"])
+        if sftp_port is not None and scalar_at(lines[sftp_port], "bind_port") != "2022":
+            warnings.append(f"system.sftp.bind_port is '{scalar_at(lines[sftp_port], 'bind_port')}': the container publishes only port 2022 (set Daemon SFTP Port 2022 on the node)")
+        return errors, warnings
     if host not in ("127.0.0.1", "localhost"):
         warnings.append(f"api.host is '{host}': Wings would listen beyond loopback")
-    sftp = find_path(lines, ["system", "sftp", "bind_address"])
-    if sftp is not None and scalar_at(lines[sftp], "bind_address") not in ("127.0.0.1", "localhost"):
-        warnings.append(f"system.sftp.bind_address is '{scalar_at(lines[sftp], 'bind_address')}': SFTP would listen on every interface")
+    if sftp_addr is not None and sftp_addr not in ("127.0.0.1", "localhost"):
+        warnings.append(f"system.sftp.bind_address is '{sftp_addr}': SFTP would listen on every interface")
     return errors, warnings
 
 
@@ -390,18 +403,20 @@ def main(argv=None):
     c.add_argument("file")
     c.add_argument("--remote")
     c.add_argument("--port", type=int)
+    c.add_argument("--container", action="store_true", help="the file is for Wings inside a container (listens on 0.0.0.0, SFTP 2022)")
     g = sub.add_parser("get", help="print the scalar at a nested key path, e.g. docker network interfaces v4 subnet")
     g.add_argument("file")
     g.add_argument("path", nargs="+")
     p = sub.add_parser("patch")
     p.add_argument("file")
     p.add_argument("--out", required=True)
-    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--host", help="api.host (default 127.0.0.1; 0.0.0.0 with --container)")
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--remote", required=True)
     p.add_argument("--origin", required=True)
     p.add_argument("--trusted-proxy", default="127.0.0.1")
-    p.add_argument("--sftp-host", default="127.0.0.1")
+    p.add_argument("--sftp-host", help="system.sftp.bind_address (default 127.0.0.1; 0.0.0.0 with --container)")
+    p.add_argument("--container", action="store_true", help="the file is for Wings inside a container")
     p.add_argument("--tune", action="store_true", help="also apply the conservative resource/IO tuning to existing keys")
     p.add_argument("--game-subnet", help="docker.network.interfaces.v4.subnet for game containers (= GAME_NET_SUBNET)")
     a = ap.parse_args(argv)
@@ -420,7 +435,7 @@ def main(argv=None):
         print(v)
         return 0
     if a.cmd == "check":
-        errors, warnings = check(lines, a.remote, a.port)
+        errors, warnings = check(lines, a.remote, a.port, a.container)
         for w in warnings:
             print(f"WARN {w}")
         for e in errors:
@@ -431,8 +446,9 @@ def main(argv=None):
         for e in errors:
             print(f"ERROR {e}")
         return 2
+    listen = "0.0.0.0" if a.container else "127.0.0.1"
     try:
-        changes = patch(lines, a.host, a.port, a.remote, a.origin, a.trusted_proxy, a.sftp_host, a.tune, a.game_subnet)
+        changes = patch(lines, a.host or listen, a.port, a.remote, a.origin, a.trusted_proxy, a.sftp_host or listen, a.tune, a.game_subnet)
     except ValueError as e:
         print(f"ERROR {e}")
         return 2

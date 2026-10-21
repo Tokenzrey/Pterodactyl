@@ -171,7 +171,7 @@ Model ancaman lengkap: [Keamanan](security.md).
 | `games sync` dari data Panel nyata | **Nyata** |
 | Install modpack lewat Wings (Forge 1.20.1) termasuk `launch.args` dan penghapusan JRE sementara | **Nyata** |
 | Installer dengan jaringan nyata: Fabric (Modrinth, Minecraft 26.2 → Java 25), Forge 1.20.1, NeoForge 1.21.1, Forge 1.12.2 (JRE 8 sementara) | **Nyata**; keempatnya memuat loader dan mod lalu berhenti di persyaratan EULA (EULA tidak diterima oleh pengujian) |
-| Menjalankan server game lewat Wings | **Belum diuji** (Docker Desktop: bind `/etc/machine-id` gagal pada Wings di dalam container) |
+| Menjalankan server game lewat Wings | **Nyata** di Docker Desktop dengan Wings sebagai container (server uji dengan image `yolks`, bukan Minecraft); **belum diuji** dengan modpack nyata dan di VPS |
 | CurseForge dengan kunci nyata | **Belum diuji** (diuji dengan mock) |
 | Quilt dan pack Forge atau NeoForge berukuran besar | **Belum diuji** |
 | Logika `game create`, `games sync`, installer | **Otomatis** (mock Panel, Modrinth, CurseForge, CDN) |

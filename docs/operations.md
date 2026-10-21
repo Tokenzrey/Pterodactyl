@@ -64,6 +64,38 @@ Dengan `WINGS_TUNING=yes`, kunci berikut ikut diubah **hanya bila sudah ada** di
 
 Menyimpan ulang node di Panel menimpa `api.port` di sisi Panel: salin ulang config dan jalankan `sudo ./ptero wings configure <berkas>` (config lama disimpan sebagai `config.yml.bak-<waktu>`, mode 600).
 
+### Wings sebagai container (`WINGS_MODE=container`)
+
+Untuk mesin yang tidak bisa menjalankan Wings di bawah systemd dengan Docker Engine, terutama **Docker Desktop di WSL2**. Di VPS pakai mode `host` di atas: itu jalur yang didokumentasikan upstream.
+
+**Mengapa mode ini ada.** Docker Desktop tidak punya `docker.service`, dan konektor tunnel (jaringan host) berjalan di VM Docker Desktop, bukan di distro WSL. Wings systemd di distro tidak terjangkau dari tunnel: route Wings memberi `502` walaupun `./ptero wings status` hijau. Sebagai container, Wings mempublikasikan port API-nya di loopback VM yang sama dengan tunnel.
+
+**Prasyarat:** Panel sehat, node dibuat dan tab *Configuration*-nya disalin ke berkas (langkah 1 sampai 3 di atas, dengan **Daemon SFTP Port** `2022`: hanya port itu yang dipublikasikan), dan **service Wings native tidak aktif**: `sudo systemctl disable --now wings`. Preflight dan `wings install` menolak bila masih aktif, karena dua Wings untuk satu node bentrok di port API dan SFTP 2022.
+
+1. Di `config/deploy.env`: `WINGS_MODE=container`. Dengan `WINGS_REMOTE_MODE=internal`, Wings menghubungi Panel di `http://panel:80` lewat jaringan Compose, tanpa Cloudflare.
+2. `./ptero wings install --config ~/node.yml`, **tanpa sudo**. Perintah meminta konfirmasi (container ini memegang socket Docker), menambal config dan menyimpannya di volume `pterodactyl_wings_etc` (mode 600, tidak pernah di pohon repositori), menarik image yang dipatok (`WINGS_IMAGE`), lalu menjalankan `wings` dan `egress-guard` dan menunggu keduanya siap. Tanpa `--config` dan tanpa config di volume, tidak ada yang dijalankan.
+3. `shred -u ~/node.yml`, karena berkas itu berisi token node.
+
+**Periksa:** `./ptero status` menampilkan `wings-container running`, `wings-api answers (HTTP 401 ...)`, dan `egress-guard healthy`; `./ptero verify` hijau.
+
+Penambalan yang berbeda dari mode host (kunci lain sama):
+
+| Kunci | Nilai | Alasan |
+|---|---|---|
+| `api.host` | `0.0.0.0` | di dalam container Wings harus mendengar di semua antarmuka; yang hanya loopback adalah port yang dipublikasikan (`127.0.0.1:WINGS_API_PORT`) |
+| `system.sftp.bind_address` | `0.0.0.0` | sama; dipublikasikan di `WINGS_SFTP_BIND`, port 2022 |
+| `api.trusted_proxies` | `PANEL_EDGE_SUBNET` | hop tunnel tiba dari gateway jaringan `edge`, bukan dari `127.0.0.1` |
+| `remote` | `https://PANEL_FQDN` (`public`) atau `http://panel:80` (`internal`) | `127.0.0.1` di dalam container bukan Panel |
+
+Yang perlu diketahui:
+
+- **Path identik.** Wings memulai container game lewat socket Docker, dan daemon menyelesaikan path bind-nya di sisinya sendiri. Karena itu `/var/lib/pterodactyl`, `/tmp/pterodactyl`, `/var/log/pterodactyl`, dan `/run/wings` di-mount ke path yang sama di dalam container. Bila salah satunya tidak identik, server terinstal di satu direktori dan berjalan dari yang lain, dan `/etc/machine-id` menjadi direktori kosong buatan daemon sehingga server tidak bisa start. Itulah penyebab kegagalan lama di Docker Desktop ([Verifikasi](verification.md#wings-sebagai-container-di-docker-desktop-daemon-nyata)).
+- **Egress guard.** Layanan `egress-guard` memasang aturan iptables untuk `GAME_NET_SUBNET` di namespace jaringan daemon (Docker Desktop: VMnya), dengan aturan yang sama seperti `./ptero firewall egress` di host. Ia menjalankan `apk add iptables` saat start, jadi butuh internet, dan baru `healthy` bila aturan benar-benar ada, sehingga `wings install` gagal dengan jelas dan tidak membiarkan jaringan game tanpa penjaga. `./ptero firewall egress ...` ditolak di mode ini.
+- **Aturan tetap ada setelah `down`.** Container guard dihapus oleh `./ptero down`, tetapi aturannya tetap di iptables daemon, sehingga container game yang masih berjalan tetap terjaga. Aturan itu tidak persisten: setelah Docker Desktop dimulai ulang, container guard (`restart: unless-stopped`) memasangnya lagi (belum diuji).
+- **Siklus hidup.** `./ptero up` menyalakan Wings bila config ada di volume. `./ptero down` menghapus container Wings dan guard, tidak menghapus volume config maupun container game; saat Wings kembali ia mengaitkan ulang ke server yang berjalan. `./ptero wings update` menarik image yang dipatok dan membuat ulang container. `./ptero update` tidak menyentuh Wings, sama seperti biner di mode host.
+- **Backup.** `./ptero backup` memuat config Wings dari volume.
+- **Kembali ke mode host.** `./ptero down`, ubah `WINGS_MODE=host`, salin ulang config dari tab *Configuration* node (config container ditambal berbeda), lalu `sudo ./ptero wings install --config <berkas>`.
+
 ## Backup
 
 **Prasyarat:** database sehat (`./ptero status`). Opsional: paket `age` dan `BACKUP_AGE_RECIPIENT` untuk enkripsi.

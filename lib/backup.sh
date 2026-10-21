@@ -56,7 +56,11 @@ backup_create() { # backup_create [label] -> prints the path of the finished bac
     mkdir -p "$stage/repo/config" "$stage/repo/secrets" "$stage/wings"
     cp -- "$PTERO_ROOT/config/deploy.env" "$PTERO_ROOT/config/versions.env" "$stage/repo/config/" || { err "cannot read config/"; return 1; }
     cp -- "$PTERO_ROOT"/secrets/* "$stage/repo/secrets/" 2>/dev/null
-    [[ -r ${PTERO_WINGS_ETC:-/etc/pterodactyl}/config.yml ]] && cp -- "${PTERO_WINGS_ETC:-/etc/pterodactyl}/config.yml" "$stage/wings/config.yml"
+    if wings_container_mode; then
+        wings_vol_has_config && { wings_vol_read_config >"$stage/wings/config.yml" || rm -f -- "$stage/wings/config.yml"; }
+    elif [[ -r ${PTERO_WINGS_ETC:-/etc/pterodactyl}/config.yml ]]; then
+        cp -- "${PTERO_WINGS_ETC:-/etc/pterodactyl}/config.yml" "$stage/wings/config.yml"
+    fi
     tar czf "$work/config.tgz" -C "$stage" repo wings || { err "cannot archive configuration"; return 1; }
     rm -rf -- "$stage"
 
@@ -173,7 +177,7 @@ EOF
 
     compose up -d --wait --wait-timeout 300 || die "services unhealthy after restore: ./ptero status"
     wait_until 120 "the Panel to answer" panel_http_ok || die "Panel does not answer after restore: ./ptero logs panel"
-    info "restore complete. Wings is unchanged; on a new machine also run: ./ptero restore-config, then sudo ./ptero wings install --config <file>"
+    info "restore complete. Wings is unchanged; on a new machine also run: ./ptero restore-config, then $(wings_install_hint) --config <file>"
 }
 
 cmd_restore_config() {
@@ -200,6 +204,6 @@ cmd_restore_config() {
     info "restored config/deploy.env and secrets/. The backup's versions.env was NOT applied: this checkout's pinned versions stay in force"
     if [[ -f $tmp/wings/config.yml ]]; then
         cp -- "$tmp/wings/config.yml" "$PTERO_ROOT/config/wings-config.restored.yml" && chmod 600 "$PTERO_ROOT/config/wings-config.restored.yml"
-        info "Wings config saved to config/wings-config.restored.yml. Install it with: sudo ./ptero wings install --config config/wings-config.restored.yml"
+        info "Wings config saved to config/wings-config.restored.yml. Install it with: $(wings_install_hint) --config config/wings-config.restored.yml"
     fi
 }

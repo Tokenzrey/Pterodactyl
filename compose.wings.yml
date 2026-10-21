@@ -1,0 +1,87 @@
+# Wings as a container. Loaded ONLY when WINGS_MODE=container in config/deploy.env (./ptero adds this file to compose.yml).
+#
+# Why this is a separate file: compose.yml promises that nothing in the default stack touches the Docker socket or the host
+# filesystem (tests/t_static.sh enforces it). Wings needs both, so everything that breaks that promise lives here, is opt-in,
+# and has its own checks in tests/t_static.sh. Read docs/security.md before turning it on.
+#
+# It exists for machines that cannot run Wings under systemd with Docker Engine, i.e. Docker Desktop on WSL2. On a VPS use
+# WINGS_MODE=host (the documented upstream method).
+#
+# Do not run `docker compose` directly: variables come from ./ptero (use `./ptero compose <args>` for ad-hoc commands).
+
+x-wings-base: &wings-base
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  wings:
+    <<: *wings-base
+    profiles: [wings]                         # started by `./ptero wings install`, never by a plain `./ptero up` without a config
+    image: ${WINGS_IMAGE:?run through ./ptero}
+    tty: true
+    environment:
+      TZ: ${APP_TIMEZONE:-UTC}
+      WINGS_UID: "988"                        # owner of /var/lib/pterodactyl/volumes; files are written through this account
+      WINGS_GID: "988"
+      WINGS_USERNAME: pterodactyl
+    ports:
+      # The API port is the node's "Daemon Port" (api.port in config.yml). Loopback only: the tunnel connector runs with host
+      # networking, in the same network namespace as these published ports, and is the only public path.
+      - "127.0.0.1:${WINGS_API_PORT:-443}:${WINGS_API_PORT:-443}"
+      - "${WINGS_SFTP_BIND:-127.0.0.1}:2022:2022"   # SFTP is plain SSH, not carried by Cloudflare; 0.0.0.0 only on purpose
+    volumes:
+      - wings_etc:/etc/pterodactyl            # config.yml with the node token: a named volume, never the repo tree
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers/:/var/lib/docker/containers/
+      # PATH IDENTITY: Wings starts game containers as siblings through the socket, and the daemon resolves their bind sources
+      # on ITS filesystem. These paths must therefore be the same inside this container and on the daemon's host, or a server
+      # is installed in one directory and run from another, and /etc/machine-id becomes a directory (docs/verification.md).
+      - /var/lib/pterodactyl:/var/lib/pterodactyl
+      - /tmp/pterodactyl:/tmp/pterodactyl
+      - /var/log/pterodactyl:/var/log/pterodactyl
+      - /run/wings:/run/wings                 # system.machine_id.directory: files Wings writes and mounts at /etc/machine-id
+      - /etc/ssl/certs:/etc/ssl/certs:ro      # the image ships no CA bundle (needed for https to the Panel)
+    networks: [edge]                          # edge: the Panel (http://panel:80) and, in public mode, Cloudflare
+    mem_limit: 1g
+    pids_limit: 1024
+
+  # Keeps game containers away from the daemon host, the LAN and the cloud metadata service. Same rules as
+  # `./ptero firewall egress` on a host, but installed from a container because there is no host iptables to reach here.
+  egress-guard:
+    <<: *wings-base
+    profiles: [wings]
+    image: ${UTILITY_IMAGE:?run through ./ptero}
+    network_mode: host                        # the daemon's own network namespace (Docker Desktop: its VM)
+    cap_add: [NET_ADMIN]                      # the only added capability in the whole stack
+    environment:
+      GAME_SUBNET: ${GAME_NET_SUBNET:?run through ./ptero}
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        apk add --no-cache iptables >/dev/null
+        until iptables -S DOCKER-USER >/dev/null 2>&1; do sleep 2; done
+        for d in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10; do
+          iptables -C DOCKER-USER -s "$$GAME_SUBNET" -d "$$d" -j DROP 2>/dev/null || iptables -I DOCKER-USER 1 -s "$$GAME_SUBNET" -d "$$d" -j DROP
+        done
+        iptables -C DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN 2>/dev/null \
+          || iptables -I DOCKER-USER 1 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+        iptables -C INPUT -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP 2>/dev/null \
+          || iptables -I INPUT 1 -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP
+        exec sleep infinity
+    healthcheck:
+      # healthy only once the rules really exist, so `up --wait` fails loudly instead of leaving the game network unguarded
+      test: ["CMD-SHELL", "iptables -C INPUT -s \"$$GAME_SUBNET\" -m conntrack --ctstate NEW -j DROP && iptables -C DOCKER-USER -s \"$$GAME_SUBNET\" -d 10.0.0.0/8 -j DROP"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 90s
+    mem_limit: 64m
+    pids_limit: 64
+
+volumes:
+  wings_etc:

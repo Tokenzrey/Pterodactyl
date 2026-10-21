@@ -111,6 +111,7 @@ assert_file "$E" "a single .tar.age file"
 ls -d "$R"/backups/*-enc 2>/dev/null | grep -q . && fail "plaintext directory removed after encryption" || pass "plaintext directory removed after encryption"
 assert_contains "$(cat "$FAKE_STATE/age.log")" "recipient=$KEY" "encrypted to the configured public key"
 echo "AGE-SECRET-KEY-stub" >"$SB/id.txt"
+sleep 1   # same reason as above: the safety backup of this restore must not land in the second of the previous one
 p restore --yes --identity "$SB/id.txt" "$E"
 assert_eq 0 "$RC" "restore from an encrypted backup with --identity"
 p restore --yes "$E"

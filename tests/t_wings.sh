@@ -96,6 +96,28 @@ assert_contains "$(cat "$SB/fj2.out")" "no changes needed" "patching the convert
 $WC patch "$FIX" --out "$SB/nosub.yml" --port 18443 --remote https://panel.mytest.dev --origin https://panel.mytest.dev >/dev/null
 assert_contains "$(cat "$SB/nosub.yml")" "    interface: 172.18.0.1" "without --game-subnet the docker block is left as it was"
 
+echo "wings_config.py: container mode (Wings inside a container)"
+$WC patch "$FIX" --out "$SB/ctr.yml" --port 18443 --remote http://panel:80 --origin https://panel.mytest.dev --trusted-proxy 10.77.250.0/24 --container >"$SB/ctr.out"; rc=$?
+assert_eq 0 "$rc" "patch --container succeeds"
+C=$(cat "$SB/ctr.yml")
+assert_contains "$C" '  host: "0.0.0.0"' "api.host -> 0.0.0.0 inside the container (the published port is what stays on loopback)"
+assert_contains "$C" '    bind_address: "0.0.0.0"' "SFTP listens on every interface inside the container"
+assert_contains "$C" "    - 10.77.250.0/24" "trusted_proxies gets the edge network (the tunnel arrives from its gateway)"
+assert_not_contains "$C" "    - 127.0.0.1" "and not 127.0.0.1, which is not where the tunnel arrives from here"
+assert_not_contains "$(cat "$SB/ctr.out")" "AAAABBBB" "the token is never printed"
+out=$($WC check "$SB/ctr.yml" --remote http://panel:80 --port 18443 --container); rc=$?
+assert_eq 0 "$rc" "the container check passes"
+assert_eq "" "$out" "and has nothing to warn about"
+out=$($WC check "$SB/ctr.yml" --remote http://panel:80 --port 18443)
+assert_contains "$out" "api.host is '0.0.0.0'" "the host-mode check still warns about listening beyond loopback"
+out=$($WC check "$SB/patched.yml" --remote https://panel.mytest.dev --port 18443 --container)
+assert_contains "$out" "inside the container Wings must listen on 0.0.0.0" "a host-mode file fails the container check"
+sed 's/^    bind_port: 2022/    bind_port: 2023/' "$SB/ctr.yml" >"$SB/ctr2.yml"
+out=$($WC check "$SB/ctr2.yml" --container)
+assert_contains "$out" "publishes only port 2022" "an SFTP port other than 2022 is called out"
+$WC patch "$SB/ctr.yml" --out "$SB/ctr3.yml" --port 18443 --remote http://panel:80 --origin https://panel.mytest.dev --trusted-proxy 10.77.250.0/24 --container >"$SB/ctr3.out"
+assert_contains "$(cat "$SB/ctr3.out")" "no changes needed" "patching a container file again changes nothing (idempotent)"
+
 echo "wings install on a fake host"
 valid_config
 # the repo pins the real release hash; the tests use their own fixture binary, so give the sandbox a matching pin
@@ -159,6 +181,107 @@ assert_file "$PTERO_WINGS_BIN.prev" "previous binary kept for rollback"
 assert_contains "$(cat "$PTERO_WINGS_BIN")" "rebuilt" "new binary in place"
 p wings update
 assert_eq 4 "$RC" "update without --yes and without a terminal is refused"
+
+echo "WINGS_MODE=container: Wings as a Compose service (fresh fake host)"
+sandbox_cleanup; sandbox
+valid_config
+sed -i 's/^WINGS_MODE=.*/WINGS_MODE=container/' "$R/config/deploy.env"
+VOL=$FAKE_STATE/volumes/pterodactyl_wings_etc
+cp "$FIX" "$SB/node-config.yml"
+p setup
+assert_eq 0 "$RC" "setup works in container mode"
+assert_contains "$OUT" "Wings (container): no configuration yet" "setup does not start Wings before it has a configuration"
+assert_eq 0 "$(count_calls 'egress-guard')" "and never names the Wings services"
+p wings install --yes
+assert_eq 0 "$RC" "install without a config succeeds"
+assert_contains "$OUT" "Wings is NOT started" "and says nothing was started"
+assert_no_file "$VOL/config.yml" "no config is invented"
+: >"$FAKE_STATE/calls.log"
+p wings install --yes --config "$SB/node-config.yml"
+assert_eq 0 "$RC" "install --config succeeds"
+assert_contains "$(calls)" "volume create --label com.docker.compose.project=pterodactyl --label com.docker.compose.volume=wings_etc pterodactyl_wings_etc" "the volume is created with the labels Compose looks for (no 'not created by Docker Compose' warning)"
+assert_file "$VOL/config.yml" "the config is in the named volume"
+assert_mode "$VOL/config.yml" 600 "and is mode 600"
+[[ -z $(find "$R" -name 'config.yml*' 2>/dev/null) ]] && pass "no copy of the config (it holds the node token) in the repo tree" || fail "no copy of the config in the repo tree"
+CC=$(cat "$VOL/config.yml")
+assert_contains "$CC" '  host: "0.0.0.0"' "api.host listens inside the container"
+assert_contains "$CC" "    - 10.77.250.0/24" "trusted_proxies = the edge network"
+assert_contains "$CC" "  port: 18443" "api.port = WINGS_API_PORT"
+assert_contains "$CC" 'remote: https://panel.mytest.dev' "remote = the public Panel URL in public mode"
+assert_contains "$(calls)" "--profile wings" "the wings profile is enabled for these commands only"
+assert_contains "$(calls)" "pull wings egress-guard" "the pinned images are pulled"
+assert_contains "$(calls)" "up -d --wait --wait-timeout 240 wings egress-guard" "Wings and its egress guard start together, and are waited for"
+assert_not_contains "$(calls)" "restart wings" "a first install does not restart anything"
+assert_eq "" "$(calls | grep -E 'systemctl (enable|start|restart|stop|disable|daemon-reload)' || true)" "nothing starts, stops or installs anything in systemd (asking whether the native service is active is fine)"
+assert_not_contains "$OUT" "AAAABBBB" "no token in the output"
+assert_contains "$OUT" "Delete it when done" "warns that the pasted file still holds the token"
+p wings status
+assert_eq 0 "$RC" "wings status: running and answering"
+assert_contains "$OUT" "mode     : container" "reports the mode"
+assert_contains "$OUT" "service  : healthy" "and the container state"
+assert_contains "$OUT" "guard    : healthy" "and the egress guard state"
+assert_contains "$OUT" "HTTP 401" "and the API answer"
+p status
+assert_eq 0 "$RC" "status: everything healthy"
+assert_contains "$OUT" "wings-container" "status lists the Wings container"
+assert_contains "$OUT" "egress-guard" "and the egress guard"
+p update --check
+assert_eq 0 "$RC" "update --check works with Wings running as a container"
+assert_contains "$OUT" "nothing to update" "and ignores Wings: like the host binary it is updated by ./ptero wings update, never by update"
+
+echo "container mode: configure, update, logs, up"
+sed -i 's/^WINGS_REMOTE_MODE=.*/WINGS_REMOTE_MODE=internal/' "$R/config/deploy.env"
+: >"$FAKE_STATE/calls.log"
+p wings configure "$SB/node-config.yml"
+assert_eq 0 "$RC" "configure succeeds"
+assert_contains "$(cat "$VOL/config.yml")" 'remote: "http://panel:80"' "internal mode: the Panel service on the Compose network"
+ls "$VOL" | grep -q '^config.yml.bak-' && pass "the previous config is kept in the volume" || fail "the previous config is kept in the volume"
+assert_mode "$(ls "$VOL"/config.yml.bak-* | head -n1)" 600 "and the backup copy is 600"
+assert_contains "$(calls)" "restart wings" "a Wings container that exists is restarted"
+assert_eq 0 "$(count_calls 'volume create')" "an existing volume is not created again"
+n1=$(ls "$VOL" | grep -c '^config.yml.bak-')
+p wings configure "$SB/node-config.yml"
+assert_eq "$n1" "$(ls "$VOL" | grep -c '^config.yml.bak-')" "configuring with the same file again makes no new backup"
+: >"$FAKE_STATE/calls.log"
+p wings update --yes
+assert_eq 0 "$RC" "update succeeds"
+assert_contains "$(calls)" "pull wings egress-guard" "update pulls the pinned images"
+p wings update
+assert_eq 4 "$RC" "update without --yes and without a terminal is refused"
+p wings logs 5
+assert_eq 0 "$RC" "logs succeed"
+assert_contains "$OUT" "fake log line" "and come from the container"
+rm -f "$FAKE_STATE/running/wings" "$FAKE_STATE/running/egress-guard"
+: >"$FAKE_STATE/calls.log"
+p up
+assert_eq 0 "$RC" "up succeeds"
+assert_contains "$(calls)" "up -d --wait --wait-timeout 240 wings egress-guard" "up brings Wings back when a config exists"
+seed_installed   # the extension volumes a backup archives (setup on a real host creates them)
+p backup --label ctr
+assert_eq 0 "$RC" "backup succeeds"
+tar -tzf "$(ls -d "$R"/backups/*-ctr | head -n1)/config.tgz" | grep -qx 'wings/config.yml' && pass "the backup holds the Wings config from the volume" || fail "the backup holds the Wings config from the volume"
+p diagnose
+assert_contains "$OUT" "mode: container" "diagnose reports the container mode"
+assert_not_contains "$OUT" "AAAABBBB" "and never the node token"
+
+echo "container mode: refusals"
+touch "$FAKE_STATE/systemd/wings.active"
+p wings install --yes
+assert_eq 4 "$RC" "install refuses while the native Wings service is active"
+assert_contains "$OUT" "systemctl disable --now wings" "and says how to stop it"
+p preflight
+assert_eq 3 "$RC" "preflight fails: a second Wings would share the node"
+assert_contains "$OUT" "native Wings service (systemd) is active" "and says why"
+rm -f "$FAKE_STATE/running/wings" "$FAKE_STATE/running/egress-guard"
+: >"$FAKE_STATE/calls.log"
+p up
+assert_eq 0 "$RC" "up still brings the Panel up"
+assert_contains "$OUT" "the Wings container was NOT started" "but warns that Wings was not started"
+assert_eq 0 "$(count_calls 'egress-guard')" "and does not start it"
+rm -f "$FAKE_STATE/systemd/wings.active"
+p firewall egress status
+assert_eq 4 "$RC" "host egress commands are refused: they would edit the wrong iptables"
+assert_contains "$OUT" "egress-guard service" "and point at the service that does the job"
 
 echo "root is required outside test mode"
 OUT=$(cd "$R" && PTERO_TEST_MODE=0 ./ptero wings install 2>&1 </dev/null); RC=$?

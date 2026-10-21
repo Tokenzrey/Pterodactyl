@@ -118,7 +118,7 @@ cmd_game() { # ./ptero game create --name N --source modrinth|curseforge|url --p
     shift
     prepare 0
     [[ $(svc_state panel) == healthy ]] || die "the Panel is not running: ./ptero setup" $EX_REFUSED
-    [[ $(wings_state_ok) == yes ]] || warn "Wings is not active: creating the server record works, but the install only runs once Wings is up (sudo ./ptero wings install)"
+    [[ $(wings_state_ok) == yes ]] || warn "Wings is not active: creating the server record works, but the install only runs once Wings is up ($(wings_install_hint))"
     games_prepare_routes || die "cannot create the routes file"
     info "planning (nothing is created yet)"
     games_python create "$@" || exit $?
@@ -130,4 +130,9 @@ cmd_game() { # ./ptero game create --name N --source modrinth|curseforge|url --p
     return $rc
 }
 
-wings_state_ok() { if have systemctl && systemctl is-active --quiet wings 2>/dev/null; then echo yes; else echo no; fi; }
+wings_state_ok() {
+    if wings_container_mode; then
+        [[ -n $(compose_wings ps -q --status running wings 2>/dev/null) ]] && echo yes || echo no
+    elif have systemctl && systemctl is-active --quiet wings 2>/dev/null; then echo yes
+    else echo no; fi
+}
