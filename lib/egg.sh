@@ -72,8 +72,8 @@ cmd_egg() {
         install)
             prepare 0
             [[ $(svc_state panel) == healthy ]] || die "the Panel is not running: ./ptero setup" $EX_REFUSED
+            # a missing CurseForge key is already reported by egg_install_run (warn), so nothing else is printed here
             egg_install_run || exit $EX_FAIL
-            info "the CurseForge source needs a key: ./ptero key set curseforge, then re-run ./ptero egg install"
             ;;
         *) die "usage: ./ptero egg {build|check|install}" $EX_USAGE ;;
     esac
