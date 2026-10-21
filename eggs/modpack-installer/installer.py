@@ -668,7 +668,8 @@ def resolve(env, workdir, download=True):
 
 def install(env, dest):
     os.makedirs(dest, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="modpack-") as work:
+    # the download scratch goes on the server disk: the install container's /tmp is a 100 MB tmpfs (Wings tmpfs_size)
+    with tempfile.TemporaryDirectory(prefix=".ptero-work-", dir=dest) as work:
         pack = resolve(env, work)
         log(f"pack: {pack.label} {pack.version} | Minecraft {pack.mc} | loader {pack.loader} {pack.loader_version or ''} | mods {pack.mods}")
         if env.get("MODPACK_MC_VERSION") and pack.mc and env["MODPACK_MC_VERSION"] != pack.mc:

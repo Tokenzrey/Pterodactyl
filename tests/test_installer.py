@@ -189,6 +189,18 @@ class TestModrinth(Base):
         self.assertNotIn(b"eula=true", b"".join(open(os.path.join(self.dest, f), "rb").read() for f in os.listdir(self.dest) if os.path.isfile(os.path.join(self.dest, f))),
                          "the installer must never accept the EULA")
 
+    def test_download_scratch_is_not_tmp(self):
+        # the install container's /tmp is a small tmpfs: the pack must be fetched without touching it
+        self.modrinth_pack(files={"mods/a.jar": b"AAA"}, overrides={"overrides/fabric-server-launch.jar": "launcher"})
+        saved = tempfile.tempdir
+        tempfile.tempdir = os.path.join(self.tmp, "no-such-tmp")
+        try:
+            inst.install(self.env(), self.dest)
+        finally:
+            tempfile.tempdir = saved
+        self.assertEqual(self.read("mods/a.jar"), b"AAA")
+        self.assertEqual([n for n in os.listdir(self.dest) if n.startswith(".ptero-work-")], [], "scratch folder removed afterwards")
+
     def test_hash_mismatch_aborts(self):
         idx = self.modrinth_pack()
         self.mock.routes["/cdn/mods_a.jar"] = (200, b"TAMPERED")

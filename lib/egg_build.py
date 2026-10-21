@@ -83,10 +83,10 @@ def main():
             if v["env_variable"] == "CURSEFORGE_API_KEY":
                 v["default_value"] = key
         fd = os.open(a.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", newline="\n") as f:
             f.write(dump(egg))
         return 0
-    with open(OUT, "w") as f:
+    with open(OUT, "w", newline="\n") as f:
         f.write(dump(egg))
     print(f"wrote {os.path.relpath(OUT, ROOT)}")
     return 0
