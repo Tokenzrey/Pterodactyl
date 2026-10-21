@@ -1,0 +1,23 @@
+{
+    "$schema": "./node_modules/@pterodactyl/sdk/manifest.schema.json",
+    "id": "file-transfer",
+    "name": "File Transfer",
+    "version": "1.0.0",
+    "requires": {
+        "panel": "^2.0.0-dev",
+        "sdk": ">=2.0.0-beta.6 <3.0",
+        "php": "^8.3"
+    },
+    "description": "Chunked file uploads and remote URL fetching for game servers.",
+    "author": "surip",
+    "icon": "upload",
+    "provider": "FileTransfer\\FileTransferProvider",
+    "autoload": {
+        "FileTransfer\\": "src/"
+    },
+    "ui": {
+        "entry": "dist/client.js",
+        "mode": "native",
+        "prefix": "ftr"
+    }
+}
