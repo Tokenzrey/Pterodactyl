@@ -52,7 +52,6 @@ pterodactyl-extensions/.scratch/
 *.tgz
 *.tar.gz
 *.zip
-*.pteroext
 
 # ── Build output & dependencies ─────────────────────────────────────────────
 /dist/

@@ -8,7 +8,6 @@
 /panel/
 node_modules/
 vendor/
-*.pteroext
 .env
 .env.*
 .*.env
