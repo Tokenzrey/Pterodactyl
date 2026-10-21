@@ -685,6 +685,8 @@ def install(env, dest):
         launch = find_launch(dest)
         if launch is None:
             log("no bundled launcher found: installing the mod loader")
+            if not pack.loader_version:
+                pack.loader_version = env.get("LOADER_VERSION", "").strip() or None   # the pack does not state it: the owner may
             try:
                 install_loader(pack, dest, work)
             finally:

@@ -72,6 +72,15 @@
             "rules": "nullable|string|max:20|regex:/^[0-9][0-9.]*$/"
         },
         {
+            "name": "Loader version",
+            "description": "Optional. Only for packs whose server files do not say which mod loader version they need (for example NeoForge 21.1.259). Empty = the pack decides.",
+            "env_variable": "LOADER_VERSION",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:40|regex:/^[0-9A-Za-z.+-]*$/"
+        },
+        {
             "name": "Extra Java flags",
             "description": "Garbage-collector and tuning flags added to the start command. The heap is set to 80% of the server's memory automatically.",
             "env_variable": "JAVA_FLAGS",

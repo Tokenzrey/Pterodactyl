@@ -143,6 +143,7 @@ Kontainer instalasi memakai image Python (`python:3.12-slim-bookworm`) yang tida
 | `MODPACK_ID` | kosong | ya | slug atau id pack, atau tautan untuk `url` (wajib, maksimum 500 karakter) |
 | `MODPACK_VERSION` | kosong | ya | versi atau id berkas; kosong = rilis terbaru |
 | `MODPACK_MC_VERSION` | kosong | ya | filter versi Minecraft (angka dan titik) |
+| `LOADER_VERSION` | kosong | ya | hanya untuk pack yang file servernya tidak menyebut versi loader (mis. NeoForge `21.1.259` untuk ATM10); kosong = pack yang menentukan |
 | `JAVA_FLAGS` | `-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+DisableExplicitGC` | ya | tambahan argumen JVM |
 | `CURSEFORGE_API_KEY` | kosong (diisi dari `secrets/curseforge_api_key`) | **tidak** | kunci CurseForge; disembunyikan di UI, tetapi terlihat oleh proses game (lihat keamanan) |
 

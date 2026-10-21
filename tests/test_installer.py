@@ -295,6 +295,22 @@ class TestCurseForge(Base):
         self.assertTrue(cdn and not any(has_key(h) for h in cdn), "the API key is never sent to the download host")
         self.assertTrue(api and all(has_key(h) for h in api), "while every API call carries it")
 
+    def test_loader_version_override(self):
+        server = zipbytes({"pack/mods/a.jar": "1"})
+        sp = self.file(2, "server.zip", server, gameVersions=["1.21.1", "NeoForge"])
+        client = self.file(1, "client.zip", b"unused", serverPackFileId=2, gameVersions=["1.21.1", "NeoForge"])
+        self.mock.routes["/v1/mods/111/files"] = (200, {"data": [client]})
+        self.mock.routes["/v1/mods/111/files/2"] = (200, {"data": sp})
+        seen = []
+        orig = inst.install_loader
+        inst.install_loader = lambda pack, dest, work: (seen.append(pack.loader_version), (_ for _ in ()).throw(inst.InstallError("stop")))[1]
+        try:
+            with self.assertRaises(inst.InstallError):
+                inst.install(self.cf_env(LOADER_VERSION=" 21.1.259 "), self.dest)
+        finally:
+            inst.install_loader = orig
+        self.assertEqual(seen, ["21.1.259"])
+
     def test_manifest_pack(self):
         m1 = self.file(11, "m1.jar", b"M1")
         m2 = self.file(12, "client.jar", b"C", gameVersions=["1.20.1", "Client"])
