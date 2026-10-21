@@ -1,0 +1,16 @@
+# Panel extensions this repository can install: one per line "<id>  <sha256>  <version>  <source>".
+# An extension runs with FULL Panel access (database, settings, users). Nothing is installed unless it is listed here
+# AND named in PANEL_EXTENSIONS (config/deploy.env), and the bytes must match the sha256 below.
+#
+# source = https://...        downloaded, sha256-checked, then installed (pinned release tag, never "latest")
+#        = local:<path>       a file in this directory (built from the source kept next to it)
+#
+# Reviewed 2026-10-19 (./ptero ext vet): no exec/shell_exec/system/passthru/eval/proc_open, no outbound HTTP from PHP.
+announcements   5c7231eaab725030557946e5359e31c833f08e58e4c12440845c1dd7daaf92f9  1.0.0  https://github.com/pterodactyl/extensions/releases/download/v1.0.1/announcements.zip
+custom-buttons  972e120b0b74b1eab50f8a94cc68a62a1a0fd7f2dcc2c9f48b37fd2d25f642ad  1.0.0  https://github.com/pterodactyl/extensions/releases/download/v1.0.1/custom-buttons.zip
+unix            d219599f53cbd048aff5a33a221454910b0210ad51230ac997f88911a78298d6  1.0.0  local:unix/unix.pteroext
+
+# Official, same release, NOT reviewed by this repository. To use one: ./ptero ext vet <file>, read what it reports,
+# then uncomment the line (fill in the version it prints) and add the id to PANEL_EXTENSIONS.
+# redirect      2acdf166768d0b1f1cd52472e4a2f3af058c82153f7caa7134221f2bb04543cf  VERSION  https://github.com/pterodactyl/extensions/releases/download/v1.0.1/redirect.zip
+# dark-theme    8f31afc2cd7aaf4ef403681579b6fc98c9a86d44216b0f50e4883dd22dee4ab9  VERSION  https://github.com/pterodactyl/extensions/releases/download/v1.0.1/dark-theme.zip

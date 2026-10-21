@@ -87,4 +87,4 @@ Desktop.ini
 # ── Misc runtime / cache ────────────────────────────────────────────────────
 .cache/
 .tmp/
-*.lock
+# *.lock
