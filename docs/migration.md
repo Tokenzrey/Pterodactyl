@@ -19,7 +19,7 @@ Dokumen ini memetakan stack lama ke repositori ini dan menjelaskan dua jalur: pi
 
 | Stack lama | Di repositori ini |
 |---|---|
-| `compose.yml` (Panel, MariaDB, Redis, cloudflared, Wings, egress-guard, autosuspend) | `compose.yml` (Panel, MariaDB, Redis, cloudflared; mc-router opsional). Wings jadi service systemd di host. Egress guard dibawa sebagai `firewall egress`; autosuspend tidak dibawa |
+| `compose.yml` (Panel, MariaDB, Redis, cloudflared, Wings, egress-guard, autosuspend) | `compose.yml` (Panel, MariaDB, Redis, cloudflared; mc-router opsional). Wings jadi service systemd di host (atau container dengan `WINGS_MODE=container`). Egress guard dibawa sebagai `firewall egress`; autosuspend tidak dibawa |
 | `.env` (`DB_PASSWORD`, `REDIS_PASSWORD`, `CF_TUNNEL_TOKEN`, `PANEL_FQDN`, `WINGS_FQDN`, ...) | `secrets/db_password`, `secrets/redis_password`, `secrets/tunnel_token` dan `config/deploy.env` |
 | `stack.sh up/down/status/backup` | `./ptero up/down/status/backup` (ditambah restore, update, verify, diagnose) |
 | `backups/panel-<waktu>.sql.gz` dan `panel_var-<waktu>.tgz` | backup `./ptero` (satu direktori berisi keduanya dan manifest). Format lama bisa diimpor manual (di bawah) |
@@ -77,7 +77,7 @@ Yang perlu Anda ketahui:
 
 ## Di host yang sama (mengadopsi volume lama)
 
-Hanya bila host lama adalah Linux Docker biasa. **Belum diuji.** Docker Desktop dan WSL2 **bukan** target repositori ini (Wings sebagai service systemd, dan upstream menyatakan Windows tidak didukung).
+Hanya bila host lama adalah Linux Docker biasa. **Belum diuji.** Docker Desktop dan WSL2 **bukan** target produksi repositori ini (upstream menyatakan Windows tidak didukung), tetapi Wings bisa berjalan sebagai container di sana untuk pengembangan: [Operasi: Wings sebagai container](operations.md#wings-sebagai-container-wings_modecontainer).
 
 1. `./stack.sh backup` dan salin backup keluar. Lalu `./stack.sh down` (menyimpan volume).
 2. `./ptero init`, lalu ganti isi `secrets/db_password` dan `secrets/redis_password` dengan nilai `DB_PASSWORD` dan `REDIS_PASSWORD` dari `.env` lama (kata sandi MariaDB tersimpan di volume dan **harus** sama; edit dengan editor, mode tetap 600). Isi `deploy.env` dan token.

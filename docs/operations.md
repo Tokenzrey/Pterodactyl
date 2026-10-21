@@ -114,7 +114,7 @@ Isi (mode 700 untuk direktori, 600 untuk berkas):
 | `db.sql.gz` | `mariadb-dump --single-transaction`, diperiksa selesai (`Dump completed`) dan terbaca |
 | `panel_var.tgz` | **`APP_KEY`** dan `HASHIDS_SALT` |
 | `extensions.tgz` | paket ekstensi dan aset |
-| `config.tgz` | `deploy.env`, `versions.env`, `secrets/*`, dan `/etc/pterodactyl/config.yml` bila bisa dibaca |
+| `config.tgz` | `deploy.env`, `versions.env`, `secrets/*`, dan `/etc/pterodactyl/config.yml` bila bisa dibaca (mode container: config dari volume `pterodactyl_wings_etc`) |
 | `MANIFEST`, `SHA256SUMS` | metadata (versi Panel, image, host) dan checksum |
 
 - **Tidak termasuk:** data Wings dan game (`/var/lib/pterodactyl`). Backup dan berkas server dikelola Wings; pakai fitur *Backups* di Panel untuk dunia dan mod.
@@ -232,7 +232,7 @@ Pembuatan, nama host otomatis, egg, dan keamanannya: [Server Minecraft](games.md
 
 ## Log dan diagnosa
 
-`./ptero logs panel`, `./ptero logs -f cloudflared`, dan `./ptero logs wings` (journald). `./ptero diagnose --output ~/laporan.txt` membuat laporan (versi, konfigurasi non-rahasia, preflight, status, ekor log, hasil `verify`) dengan nilai rahasia disamarkan. Baca sekilas sebelum membagikannya; penyamaran bersifat *best effort*.
+`./ptero logs panel`, `./ptero logs -f cloudflared`, dan `./ptero logs wings` (journald; mode container: log container Wings dan `egress-guard`). `./ptero diagnose --output ~/laporan.txt` membuat laporan (versi, konfigurasi non-rahasia, preflight, status, ekor log, hasil `verify`) dengan nilai rahasia disamarkan. Baca sekilas sebelum membagikannya; penyamaran bersifat *best effort*.
 
 ## Pemecahan masalah
 
@@ -252,6 +252,10 @@ Pembuatan, nama host otomatis, egg, dan keamanannya: [Server Minecraft](games.md
 | Wings menolak config: `api.ssl.enabled is true` | node bukan *Behind Proxy* | ubah node, salin config lagi |
 | Konsol "Connecting…" terus | origin WebSocket diblokir (Access atau WAF di depan Wings), `allowed_origins` tidak memuat Panel | cabut Access dari `WINGS_FQDN`; `wings configure` ulang |
 | Wings gagal start setelah reboot | start sebelum Panel dan tunnel siap | unit mencoba ulang tiap 10 detik tanpa batas; `journalctl -u wings` |
+| Docker Desktop: route Wings memberi `502` walau `./ptero wings status` hijau | Wings systemd di distro WSL tidak terjangkau tunnel ("host" bagi tunnel adalah VM Docker Desktop) | pakai `WINGS_MODE=container`: [Wings sebagai container](#wings-sebagai-container-wings_modecontainer) |
+| Mode container: `ports are not available ... 2022` (atau port API) | layanan Wings native atau program lain memegang port itu | `sudo systemctl disable --now wings`; periksa `ss -ltnp 'sport = :2022'` |
+| Mode container: `egress-guard` tidak `healthy` | `apk add iptables` gagal (tanpa internet) atau iptables daemon tidak bisa diubah | `./ptero logs egress-guard`; `wings install` tidak menyatakan siap sebelum aturan ada |
+| Mode container: server game tidak start, `/etc/machine-id` `not a directory` | mount path identitas (terutama `/run/wings`) hilang dari `compose.wings.yml`, sehingga daemon membuat direktori kosong di `/run/wings/machine-id/<uuid>` | kembalikan mount itu, hapus direktori kosong tersebut (butuh root), lalu start ulang server |
 | Email reset kata sandi tidak terkirim | SMTP belum diatur di Panel | *Admin → Settings → Mail*; log: `./ptero logs panel` |
 | `502` dari Panel saat update | Panel dihentikan sementara oleh `update` | tunggu `update` selesai |
 | `confirmation required but there is no terminal` | perintah butuh konfirmasi dan stdin bukan terminal | tambahkan `--yes` bila Anda yakin |
@@ -267,6 +271,6 @@ Masalah khusus server Minecraft (install, nama host, pemain tidak bisa tersambun
 `./ptero down` menghentikan container dan **menyimpan semua volume**. Penghapusan data (volume, `secrets/`, `backups/`, Wings) sengaja **tidak** disediakan oleh skrip. Lakukan sendiri, dan hanya setelah backup di luar server terverifikasi:
 
 1. `docker volume ls`, lalu `docker volume rm pterodactyl_<nama>` untuk tiap volume.
-2. `sudo systemctl disable --now wings`.
+2. `sudo systemctl disable --now wings` (mode container: `./ptero down` sudah menghapus container Wings dan `egress-guard`; volume config `pterodactyl_wings_etc` ikut langkah 1).
 3. Hapus `/etc/pterodactyl`, `/var/lib/pterodactyl`, `/usr/local/bin/wings*`, dan `/etc/systemd/system/wings.service`.
 4. Bila dipasang: `ptero-egress-guard.service`, `ptero-games-sync.service`, dan `ptero-games-sync.timer` di `/etc/systemd/system`.

@@ -9,6 +9,7 @@ Halaman ini memetakan seluruh dokumentasi repositori berdasarkan tujuan Anda: me
 | Tujuan | Baca | Jenis |
 |---|---|---|
 | Memasang Panel + Wings di VPS dari nol | [Instalasi lengkap](installation.md) | Tutorial |
+| Menjalankan Wings sebagai container (Docker Desktop, WSL2) | [Operasi: Wings sebagai container](operations.md#wings-sebagai-container-wings_modecontainer) | Panduan |
 | Menyiapkan Cloudflare Tunnel, route, dan Access | [Cloudflare](cloudflare.md) | Panduan |
 | Membuat server Minecraft dari modpack | [Server Minecraft](games.md) | Panduan |
 | Menjalankan, mencadangkan, memperbarui, memulihkan | [Operasi](operations.md) | Panduan (runbook) |
@@ -37,6 +38,7 @@ Halaman ini memetakan seluruh dokumentasi repositori berdasarkan tujuan Anda: me
 | `./ptero setup` menolak berjalan atau konfigurasi tidak valid | [Operasi: pemecahan masalah](operations.md#pemecahan-masalah), [Referensi konfigurasi](configuration.md) |
 | `./ptero verify` gagal: DNS, 502, 530 | [Cloudflare: verifikasi](cloudflare.md#6-verifikasi) |
 | Node merah atau konsol server tidak tersambung | [Operasi: pemecahan masalah](operations.md#pemecahan-masalah), [Cloudflare: pengaturan node](cloudflare.md#3-pengaturan-node-di-panel-sinkron-dengan-route) |
+| Route Wings `502` di Docker Desktop, atau `wings install` menolak karena `docker.service` | [Operasi: Wings sebagai container](operations.md#wings-sebagai-container-wings_modecontainer) |
 | Pemain tidak bisa tersambung ke server Minecraft | [Server Minecraft: pemecahan masalah](games.md#pemecahan-masalah) |
 | Install modpack gagal, `launch.args is missing`, `No space left on device` | [Server Minecraft: pemecahan masalah](games.md#pemecahan-masalah) |
 | Firewall mati sendiri, `firewall apply` ditolak | [Operasi: firewall](operations.md#firewall-egress-guard-dan-audit), [Keamanan](security.md) |
