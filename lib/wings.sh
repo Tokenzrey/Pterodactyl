@@ -99,7 +99,12 @@ cmd_wings() {
             need_root "wings install"
             prepare 0
             need systemctl "Wings needs a systemd host"
-            systemctl is-active --quiet docker 2>/dev/null || die "docker.service is not active (systemctl status docker)" $EX_PREFLIGHT
+            if ! systemctl is-active --quiet docker 2>/dev/null; then
+                # WSL + Docker Desktop: dockerd runs in Docker Desktop's VM, so the distro has no docker.service unit.
+                docker info --format '{{.OperatingSystem}}' 2>/dev/null | grep -qx 'Docker Desktop' \
+                    || die "docker.service is not active (systemctl status docker) and Docker Desktop is not reachable from this distro" $EX_PREFLIGHT
+                warn "using the Docker Desktop daemon instead of docker.service; bind mounts and port publishing are not verified on this path"
+            fi
             confirm "Host changes: install $(wings_bin), create $(wings_etc) (700), write $(unit_dir)/wings.service. Continue?" || die "cancelled" $EX_REFUSED
             local bin; bin=$(wings_fetch) || exit $EX_FAIL
             wings_install_binary "$bin" || die "cannot install the binary"
