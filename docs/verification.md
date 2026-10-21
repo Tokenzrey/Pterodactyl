@@ -2,7 +2,7 @@
 
 > **Jenis:** Referensi · **Untuk:** peninjau, pemelihara, dan operator yang menilai seberapa jauh bisa mempercayai repositori ini · **Tanggal:** 2026-10-20 (uji lanjutan; uji awal 2026-10-19)
 
-Halaman ini mencatat setiap pengujian: apa yang dijalankan, pada apa, hasilnya, dan apa yang belum pernah dijalankan. Ringkasnya: logika dan urutan diuji otomatis dengan tiruan (618 pemeriksaan shell dan 45 test unit Python, semuanya lulus); Panel, ekstensi, router game, installer, Wings, ufw, dead-man switch, dan egress guard dijalankan pada komponen asli di mesin uji; **belum ada pemasangan di VPS Linux nyata, belum ada akun Cloudflare nyata, dan belum ada server Minecraft nyata yang dijalankan lewat Wings** (Wings sebagai container menjalankan container game uji di Docker Desktop; lihat bagian di bawah).
+Halaman ini mencatat setiap pengujian: apa yang dijalankan, pada apa, hasilnya, dan apa yang belum pernah dijalankan. Ringkasnya: logika dan urutan diuji otomatis dengan tiruan (627 pemeriksaan shell dan 45 test unit Python, semuanya lulus); Panel, ekstensi, router game, installer, Wings, ufw, dead-man switch, dan egress guard dijalankan pada komponen asli di mesin uji; **belum ada pemasangan di VPS Linux nyata, belum ada akun Cloudflare nyata, dan belum ada server Minecraft nyata yang dijalankan lewat Wings** (Wings sebagai container menjalankan container game uji di Docker Desktop; lihat bagian di bawah).
 
 ## Cara membaca halaman ini
 
@@ -43,7 +43,7 @@ Tiga label dipakai konsisten di seluruh dokumentasi:
 
 ## Test otomatis
 
-Perintah: `bash tests/run.sh`. Hasil 2026-10-21: **618 pemeriksaan shell** (termasuk `t_games.sh` dan `t_installer.sh` yang juga menjalankan **45 test unit Python**: 17 + 28), semuanya lulus, `ALL TEST FILES PASSED`.
+Perintah: `bash tests/run.sh`. Hasil 2026-10-21: **627 pemeriksaan shell** (termasuk `t_games.sh` dan `t_installer.sh` yang juga menjalankan **45 test unit Python**: 17 + 28), semuanya lulus, `ALL TEST FILES PASSED`.
 
 | File | Pemeriksaan | Cakupan |
 |---|---|---|
@@ -55,7 +55,7 @@ Perintah: `bash tests/run.sh`. Hasil 2026-10-21: **618 pemeriksaan shell** (term
 | `t_games_cli.sh` | 67 | validasi konfigurasi game, penyimpanan kunci (jenis kunci salah ditolak, tidak pernah di-echo), `games sync/list/status/dns/timer` terhadap mock Panel, reload router hanya bila tabel berubah, `game create` (penolakan), `egg build/install` (kunci tidak di command line) |
 | `t_games.sh` | 5 (+17 unit) | `games.py` terhadap mock Panel stateful: hanya server Minecraft berloopback yang dirutekan, tabrakan nama menolak dan tidak menulis, Panel mati atau kunci salah tidak menghapus tabel, rencana tidak membuat apa pun, apply membuat alokasi, server, dan rute, verifikasi install lewat `launch.args`, penolakan; berkas egg identik dengan hasil build sumbernya |
 | `t_installer.sh` | 1 (+28 unit) | installer modpack terhadap mock Modrinth, CurseForge, dan CDN: hash salah membatalkan, path berbahaya, host unduhan di luar allow-list, client-only dilewati, reinstall menjaga dunia, config, dan mod milik pemilik, probe CurseForge hanya metadata, kunci API tidak dikirim ke host unduhan |
-| `t_ext.sh` | 54 | `extensions.lock` (format, pin tag rilis, paket lokal cocok dengan sha256 dan manifestnya), `ext vet` (bersih versus mencurigakan), aturan konfigurasi, install dan reconcile terhadap Panel palsu: backup lebih dulu, idempoten, drift versi memasang ulang satu paket, byte atau versi yang beda, backup gagal, dan install gagal ditolak, saklar darurat, tema kembali ke classic tanpa menghapus apa pun, `setup` menerapkan keadaan yang diinginkan dan tidak gagal bila satu ekstensi gagal |
+| `t_ext.sh` | 63 | ekstensi yang sudah terpasang tapi tidak terdaftar (`not registered`) dipasang ulang dengan `--replace`, dan Panel tanpa `--replace` menolak (diuji lewat tiruan yang menirukan pesan Panel); `extensions.lock` (format, pin tag rilis, paket lokal cocok dengan sha256 dan manifestnya), `ext vet` (bersih versus mencurigakan), aturan konfigurasi, install dan reconcile terhadap Panel palsu: backup lebih dulu, idempoten, drift versi memasang ulang satu paket, byte atau versi yang beda, backup gagal, dan install gagal ditolak, saklar darurat, tema kembali ke classic tanpa menghapus apa pun, `setup` menerapkan keadaan yang diinginkan dan tidak gagal bila satu ekstensi gagal |
 | `t_docs.sh` | 10 | tautan relatif dan anchor di `README.md` dan `docs/*.md` ada, `docs/README.md` mengindeks semua halaman, bagian yang dirujuk pesan di `lib/` masih ada, dan pemeriksa benar-benar menangkap tautan rusak (diuji dengan checkout palsu) |
 | `t_static.sh` | 89 | pengaman suite (berhenti bila tiruan tidak dipakai, bila sandbox gagal dibuat, `ptero` menolak docker asli; tiruan tanpa bit eksekusi tetap bekerja); **`compose.wings.yml` dirender nyata**: socket dan bind host hanya di `wings`, path identik, digest, port loopback, satu capability tambahan; `bash -n`; **`docker compose config` nyata**: semua port `127.0.0.1`, digest, `no-new-privileges`, tanpa socket Docker, satu-satunya bind mount adalah tabel router read-only, `backend` internal, hanya cloudflared dan mc-router berjaringan host (read-only, `cap_drop ALL`); pemindaian rahasia; tanpa `curl \| sh`, tanpa penghapusan volume atau backup; redaksi; diagnosa tanpa rahasia; **shellcheck bersih** (bila tersedia) |
 

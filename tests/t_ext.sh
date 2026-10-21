@@ -120,6 +120,34 @@ assert_eq 0 "$RC" "update to the locked version succeeds"
 assert_contains "$(calls)" "ptero-ext-a1.zip" "a1 reinstalled"
 assert_not_contains "$(calls)" "ptero-ext-unix2.zip" "unix2 untouched"
 
+echo "an installed extension that is not registered is replaced, not refused (Panel: 'already installed ... --replace')"
+mklock a1:1.0.0:extension unix2:1.0.0:theme
+rm -f "$FAKE_STATE/ext_versions/a1"; sleep 1
+p ext install >/dev/null
+assert_eq 0 "$RC" "precondition: a fresh install succeeds"
+sed -i 's/^a1|\(.*\)|enabled|-$/a1|\1|not registered|-/' "$FAKE_STATE/ext.list"
+assert_contains "$(cat "$FAKE_STATE/ext.list")" "a1|1.0.0|not registered|-" "a1 is now installed but not registered, the state seen in a real Panel"
+sleep 1   # backup names have 1-second resolution: a second backup in the same second would be refused
+: >"$FAKE_STATE/calls.log"
+p ext install
+assert_eq 0 "$RC" "the same version in state 'not registered' is re-applied and succeeds"
+assert_contains "$(calls)" "p:extension:install /tmp/ptero-ext-a1.zip --enable --no-interaction --replace" "with --replace (the Panel would otherwise refuse)"
+assert_not_contains "$OUT" "must be confirmed" "and the Panel's refusal does not appear"
+assert_contains "$(cat "$FAKE_STATE/ext.list")" "a1|1.0.0|enabled|-" "a1 is enabled again"
+sleep 1
+: >"$FAKE_STATE/calls.log"
+p ext install >/dev/null
+assert_not_contains "$(calls)" "p:extension:install" "a second run with a registered extension does not reinstall"
+
+echo "a plain install of an installed id is refused by the Panel (the fake reproduces it)"
+mklock a1:1.0.0:extension unix2:1.0.0:theme
+rm -f "$FAKE_STATE/ext_versions/a1"
+cp "$R/extensions/pkg/a1.zip" "$SB/a1.zip"
+ptmp=/tmp/ptero-ext-a1.zip
+out=$(docker compose -p pterodactyl exec -T panel php artisan p:extension:install "$ptmp" --enable --no-interaction 2>&1); rc=$?
+assert_eq 1 "$rc" "the fake Panel refuses a plain install of an id it already has"
+assert_contains "$out" "must be confirmed. Pass --replace" "with the Panel's own wording"
+
 echo "refusals"
 mklock a1:1.0.0:extension unix2:1.0.0:theme
 echo tampered >>"$R/extensions/pkg/a1.zip"

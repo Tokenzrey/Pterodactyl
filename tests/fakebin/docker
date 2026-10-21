@@ -74,6 +74,11 @@ compose_cmd() {
             if [[ $* == *p:extension:install* ]]; then
                 [[ -z ${FAKE_EXT_FAIL:-} ]] || { echo "Extension failed its compatibility check" >&2; exit 1; }
                 all="$*"; f=${all#*p:extension:install }; f=${f%% *}; id=${f#/tmp/ptero-ext-}; id=${id%.*}
+                # the real Panel refuses to replace an installed id without --replace, whatever its state
+                if grep -q "^$id|" "$S/ext.list" 2>/dev/null && [[ $all != *--replace* ]]; then
+                    echo "   ERROR  Extension \"$id\" v$(cat "$S/ext_versions/$id" 2>/dev/null || echo 1.0.0) is already installed; replacing it with v$(cat "$S/ext_versions/$id" 2>/dev/null || echo 1.0.0) must be confirmed. Pass --replace to replace it." >&2
+                    exit 1
+                fi
                 grep -v "^$id|" "$S/ext.list" 2>/dev/null >"$S/ext.tmp"; mv "$S/ext.tmp" "$S/ext.list" 2>/dev/null
                 echo "$id|$(cat "$S/ext_versions/$id" 2>/dev/null || echo 1.0.0)|enabled|-" >>"$S/ext.list"
                 [[ -f $S/theme.ids ]] || : >"$S/theme.ids"; [[ $id == unix* || $id == *theme* ]] && echo "$id" >>"$S/theme.ids"

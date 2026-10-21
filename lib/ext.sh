@@ -38,9 +38,11 @@ ext_fetch() {
     [[ $got == "$sha" ]] || { err "$id: sha256 mismatch (got ${got:0:16}..., locked ${sha:0:16}...). Refusing to install"; return 1; }
 }
 
-# ext_install_one ID SHA VERSION SOURCE
+# ext_install_one ID SHA VERSION SOURCE [REPLACE]
+# REPLACE=1 when the Panel already has this id installed (any state, any version). The Panel then refuses a plain install
+# ("already installed ... must be confirmed. Pass --replace"), even when the installed copy is "not registered".
 ext_install_one() {
-    local id=$1 sha=$2 ver=$3 src=$4 file ext tmp meta pv
+    local id=$1 sha=$2 ver=$3 src=$4 replace=${5:-0} file ext tmp meta pv flags=(--enable --no-interaction)
     ext=${src##*.}; [[ $ext == zip || $ext == pteroext ]] || { err "$id: package must end in .zip or .pteroext"; return 1; }
     file="$PTERO_TMP/$id.$ext"
     ext_fetch "$id" "$sha" "$src" "$file" || return 1
@@ -50,7 +52,8 @@ ext_install_one() {
     tmp="/tmp/ptero-ext-$id.$ext"
     compose exec -T panel sh -c "umask 077; cat >'$tmp'" <"$file" || { err "$id: cannot hand the package to the Panel container"; return 1; }
     local out rc
-    out=$(compose exec -T panel php artisan p:extension:install "$tmp" --enable --no-interaction 2>&1); rc=$?
+    ((replace)) && flags+=(--replace)
+    out=$(compose exec -T panel php artisan p:extension:install "$tmp" "${flags[@]}" 2>&1); rc=$?
     compose exec -T panel rm -f "$tmp" >/dev/null 2>&1
     if [[ $rc -ne 0 ]]; then printf '%s\n' "$out" | tail -n 8 >&2; err "$id: p:extension:install failed"; return 1; fi
     # upstream: the web user must own both extension directories
@@ -87,7 +90,9 @@ ext_apply() {
         fi
         for id in "${todo[@]}"; do
             read -r sha ver src <<<"$(ext_lock_entry "$id")"
-            ext_install_one "$id" "$sha" "$ver" "$src" || rc=1
+            local replace=0
+            awk -v id="$id" '$1 == id {f = 1} END {exit !f}' <<<"$installed" && replace=1
+            ext_install_one "$id" "$sha" "$ver" "$src" "$replace" || rc=1
         done
     fi
     local want=${PANEL_THEME:-classic} active; active=$(theme_active)

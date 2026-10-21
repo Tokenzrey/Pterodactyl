@@ -19,7 +19,7 @@ Tabel ini meringkas apa yang sudah dijalankan pada komponen asli dan apa yang be
 | Menjalankan server game lewat Wings | **Nyata** di Docker Desktop dengan Wings sebagai container; **belum diuji** di VPS dan dengan modpack Minecraft nyata | container game berjalan, `/etc/machine-id` berupa berkas, egress guard memblokir LAN dan metadata; server uji memakai image `yolks` dengan perintah `sleep` ([Verifikasi](docs/verification.md#wings-sebagai-container-di-docker-desktop-daemon-nyata)) |
 | Cloudflare Tunnel dengan akun nyata, Access, WAF | **Belum diuji** | memerlukan akun Anda; `cloudflared` hanya diuji menolak token tidak valid |
 | CurseForge dengan kunci nyata | **Belum diuji** | alur diuji dengan mock; Modrinth dan tautan langsung diuji nyata |
-| Test otomatis | **Otomatis** | 618 pemeriksaan shell dan 45 test unit Python, semuanya lulus pada 2026-10-21 |
+| Test otomatis | **Otomatis** | 627 pemeriksaan shell dan 45 test unit Python, semuanya lulus pada 2026-10-21 |
 
 ## Yang Anda dapatkan
 
