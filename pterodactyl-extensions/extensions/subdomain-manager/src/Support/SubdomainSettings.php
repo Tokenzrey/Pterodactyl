@@ -61,9 +61,9 @@ final readonly class SubdomainSettings
             Setting::make('srv_enabled', 'srv_enabled', true)
                 ->field('toggle')->tab('DNS')->label('Create an SRV record')
                 ->help('Lets Minecraft clients join with the name alone, without typing the port.'),
-            Setting::make('srv_port', 'srv_port', 25565, ['nullable', 'integer', 'between:0,65535'])
+            Setting::make('srv_port', 'srv_port', 0, ['nullable', 'integer', 'between:0,65535'])
                 ->field('number')->tab('DNS')->label('SRV port')
-                ->help('0 uses the primary allocation port of each server.'),
+                ->help('0 (default): every server uses its own primary allocation port, so each server needs its own port open at the router. A fixed number sends every name to that one port, which is only right behind a proxy.'),
             Setting::make('ttl', 'ttl', 120, ['nullable', 'integer', static fn (string $attribute, mixed $value, \Closure $fail) => $value === null || $value === 1 || ($value >= 60 && $value <= 86400)
                 ? null
                 : $fail('The TTL must be 1 (automatic) or between 60 and 86400 seconds.')])
@@ -111,7 +111,7 @@ final readonly class SubdomainSettings
             $this->domains(),
             is_string($ip) ? trim($ip) : '',
             $this->srvEnabled(),
-            is_numeric($port) ? (int) $port : 25565,
+            is_numeric($port) ? (int) $port : 0,
             is_numeric($ttl) ? (int) $ttl : 120,
         );
     }

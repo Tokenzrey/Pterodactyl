@@ -37,7 +37,7 @@ test('the form has the documented settings in two tabs, with the documented defa
     expect($byInput['cloudflare_token']['field'])->toBe('password')
         ->and($byInput['domains']['field'])->toBe('list')->and($byInput['domains']['constraints']['max_items'])->toBe(20)
         ->and($byInput['srv_enabled']['value'])->toBeTrue()
-        ->and($byInput['srv_port']['value'])->toBe(25565)
+        ->and($byInput['srv_port']['value'])->toBe(0)
         ->and($byInput['ttl']['value'])->toBe(120)
         ->and($byInput['target_ipv4']['value'])->toBe('')
         ->and($byInput['reserved_labels']['constraints']['max_items'])->toBe(100)
@@ -122,6 +122,10 @@ describe('the other settings', function (): void {
         ['203.0.113.10', true], ['', true],
         ['2001:db8::1', false], ['999.1.1.1', false], ['example.com', false], ['203.0.113.10/32', false], ['203.0.113.10:25565', false],
     ]);
+
+    test('the SRV port defaults to 0, so every server takes its own allocation port (one port per server)', function (): void {
+        expect($this->settings()->syncConfig()->srvPort)->toBe(0);
+    });
 
     test('srv_port is 0 to 65535', function (mixed $value, bool $ok): void {
         expect(patchSettings(['srv_port' => $value])->status())->toBe($ok ? 200 : 422);
