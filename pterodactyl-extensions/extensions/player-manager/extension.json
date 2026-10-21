@@ -1,0 +1,35 @@
+{
+    "$schema": "./node_modules/@pterodactyl/sdk/manifest.schema.json",
+    "id": "player-manager",
+    "name": "Player Manager",
+    "version": "1.0.0",
+    "requires": {
+        "panel": "^2.0.0-dev",
+        "sdk": ">=2.0.0-beta.6 <3.0",
+        "php": "^8.3"
+    },
+    "description": "See who is online on a Minecraft server and kick, ban, op or deop players from the Panel.",
+    "author": "surip",
+    "icon": "users",
+    "provider": "PlayerManager\\PlayerManagerProvider",
+    "autoload": {
+        "PlayerManager\\": "src/"
+    },
+    "ui": {
+        "entry": "dist/client.js",
+        "mode": "native",
+        "prefix": "plm",
+        "screens": [
+            {
+                "id": "players",
+                "area": "server",
+                "path": "players",
+                "nav": {
+                    "label": "Players",
+                    "icon": "users"
+                },
+                "permission": ["ext.player-manager.read"]
+            }
+        ]
+    }
+}
