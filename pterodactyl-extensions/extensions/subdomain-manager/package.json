@@ -8,8 +8,7 @@
         "dev": "vite build --watch",
         "typecheck": "tsc",
         "test": "vitest run",
-        "test:watch": "vitest",
-        "api:generate": "openapi-ts && node scripts/externalize-api.mjs"
+        "test:watch": "vitest"
     },
     "devDependencies": {
         "@pterodactyl/sdk": "file:../../packages/sdk",
@@ -31,7 +30,6 @@
         "jsdom": "^26.1.0",
         "@testing-library/react": "^16",
         "@testing-library/dom": "^10",
-        "@hey-api/openapi-ts": "0.99.0",
         "@types/node": "^22",
         "tailwindcss": "^4.3.0",
         "@tailwindcss/postcss": "^4",
