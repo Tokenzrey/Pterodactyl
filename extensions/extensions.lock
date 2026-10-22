@@ -19,7 +19,7 @@ redirect  2acdf166768d0b1f1cd52472e4a2f3af058c82153f7caa7134221f2bb04543cf  1.0.
 # outbound HTTP by design (CurseForge, S3, OAuth providers, Panel/Wings API); file-transfer decodes uploaded chunk data
 # (base64, validated). Read the sources before enabling a new version.
 oauth-login        5bd8d9c05985517d1c3bc1f8dda45add07419df5b51b2b8cea2de1ee0199bf85  1.0.0  local:oauth-login/oauth-login-1.0.0.pteroext
-subdomain-manager  06ac4adc43795025a112e78fb5a7d1cf3f4144d739943cfdcfeb6fa4ad138861  1.0.0  local:subdomain-manager/subdomain-manager-1.0.0.pteroext
+subdomain-manager  8014edd06c179f3c5eaea65b2eba1197ce7aa162c963e4a45da95f324841ae36  1.1.0  local:subdomain-manager/subdomain-manager-1.1.0.pteroext
 player-manager     938339b8908ac5c2c6358276f46cc551591ee0b531ebb79aead1757249d75004  1.0.0  local:player-manager/player-manager-1.0.0.pteroext
 minecraft-suite    02f34f2c16699d2a8e7b36add774c2922bc2c9af71d1ec8d9cc95d58f68402db  1.0.0  local:minecraft-suite/minecraft-suite-1.0.0.pteroext
 file-transfer      72a2146f305f1587f2eefc4967afcd8c867c157efac2957480362d0b67964c7a  1.0.0  local:file-transfer/file-transfer-1.0.0.pteroext
