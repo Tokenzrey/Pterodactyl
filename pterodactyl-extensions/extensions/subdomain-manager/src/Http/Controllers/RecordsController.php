@@ -14,6 +14,7 @@ use SubdomainManager\Jobs\SyncRecord;
 use SubdomainManager\Models\Record;
 use SubdomainManager\Support\CloudflareClient;
 use SubdomainManager\Support\CloudflareException;
+use SubdomainManager\Support\RoutedNames;
 use SubdomainManager\Support\SubdomainSettings;
 
 /**
@@ -71,7 +72,7 @@ class RecordsController extends Controller
         return response()->json(['problem' => null, 'results' => $results]);
     }
 
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, SubdomainSettings $settings): JsonResponse
     {
         $input = $request->validate([
             'status' => ['nullable', 'string', Rule::in(self::STATUSES)],
@@ -90,20 +91,27 @@ class RecordsController extends Controller
         }
 
         $page = $query->paginate(self::PER_PAGE, page: (int) ($input['page'] ?? 1));
-        $names = Server::query()->whereIn('id', $page->pluck('server_id')->filter()->all())->pluck('name', 'id');
+        $servers = Server::query()->with(['egg', 'allocation'])->whereIn('id', $page->pluck('server_id')->filter()->all())->get()->keyBy('id');
+        $mode = $settings->mode();
 
         return response()->json([
-            'data' => $page->getCollection()->map(fn (Record $record): array => [
-                'id' => $record->id,
-                'label' => $record->label,
-                'domain' => $record->domain,
-                'address' => $record->fqdn(),
-                'status' => $record->status,
-                'last_error' => $record->last_error,
-                'attempts' => $record->attempts,
-                'server' => $record->server_id !== null && isset($names[$record->server_id]) ? ['id' => $record->server_id, 'name' => $names[$record->server_id]] : null,
-                'updated_at' => $record->updated_at?->toIso8601String(),
-            ])->values(),
+            'data' => $page->getCollection()->map(function (Record $record) use ($servers, $mode): array {
+                $server = $record->server_id !== null ? $servers->get($record->server_id) : null;
+
+                return [
+                    'id' => $record->id,
+                    'label' => $record->label,
+                    'domain' => $record->domain,
+                    'address' => $record->fqdn(),
+                    'status' => $record->status,
+                    'last_error' => $record->last_error,
+                    'attempts' => $record->attempts,
+                    'server' => $server !== null ? ['id' => $server->id, 'name' => $server->name] : null,
+                    // Whether games sync routes that server's name (FR-R5). Null in per-port mode, and for a deleted server.
+                    'routing' => $server !== null ? RoutedNames::status($server, $mode) : null,
+                    'updated_at' => $record->updated_at?->toIso8601String(),
+                ];
+            })->values(),
             'meta' => ['page' => $page->currentPage(), 'pages' => max(1, $page->lastPage()), 'total' => $page->total()],
         ]);
     }

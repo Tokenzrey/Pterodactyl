@@ -27,6 +27,7 @@ class AdminController extends Controller
         return response()->json([
             'domains' => array_keys($settings->domains()),
             'srv_enabled' => $settings->srvEnabled(),
+            'mode' => $settings->mode(),
             'reserved_labels' => $settings->reservedLabels(),
         ]);
     }

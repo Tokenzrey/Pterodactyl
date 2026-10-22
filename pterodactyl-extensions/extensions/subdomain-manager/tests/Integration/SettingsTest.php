@@ -32,7 +32,7 @@ test('the form has the documented settings in two tabs, with the documented defa
     $schema = settingsSchema();
     $byInput = array_column($schema, null, 'input');
 
-    expect(array_column($schema, 'input'))->toBe(['cloudflare_token', 'domains', 'target_ipv4', 'srv_enabled', 'srv_port', 'ttl', 'reserved_labels']);
+    expect(array_column($schema, 'input'))->toBe(['cloudflare_token', 'domains', 'target_ipv4', 'srv_enabled', 'mode', 'srv_port', 'ttl', 'reserved_labels']);
     expect(array_values(array_unique(array_column($schema, 'tab'))))->toBe(['Cloudflare', 'DNS']);
     expect($byInput['cloudflare_token']['field'])->toBe('password')
         ->and($byInput['domains']['field'])->toBe('list')->and($byInput['domains']['constraints']['max_items'])->toBe(20)
@@ -168,6 +168,28 @@ describe('the other settings', function (): void {
             ->and($config->ttl)->toBe(600)
             ->and($config->problem('mc.example.com'))->toBeNull();
     });
+
+    test('FR-R1: the mode defaults to per-port, so an existing installation does not change', function (): void {
+        expect($this->settings()->mode())->toBe('per_port')
+            ->and($this->settings()->syncConfig()->srvPort)->toBe(0);
+    });
+
+    test('FR-R1: routed mode uses port 25565 whatever the SRV port field says', function (int $storedPort): void {
+        $this->configureCloudflare(['mode' => 'routed', 'srv_port' => $storedPort]);
+
+        expect($this->settings()->mode())->toBe('routed')
+            ->and($this->settings()->syncConfig()->srvPort)->toBe(25565);
+    })->with([0, 25600, 65535]);
+
+    test('FR-R1: per-port mode keeps the SRV port field as it is', function (int $storedPort): void {
+        $this->configureCloudflare(['mode' => 'per_port', 'srv_port' => $storedPort]);
+
+        expect($this->settings()->syncConfig()->srvPort)->toBe($storedPort);
+    })->with([0, 25600]);
+
+    test('FR-R1: the mode accepts only the two documented values', function (string $mode, bool $ok): void {
+        expect(patchSettings(['mode' => $mode])->status())->toBe($ok ? 200 : 422);
+    })->with([['routed', true], ['per_port', true], ['both', false], ['', false], ['ROUTED', false]]);
 
     test('fresh installation: not configured means every sync would fail with a config message, never a Cloudflare call', function (): void {
         $config = SubdomainSettings::fromRegistry($this->app->make(Pterodactyl\Services\Extensions\ExtensionSettingsRegistry::class))->syncConfig();

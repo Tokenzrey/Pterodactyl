@@ -19,6 +19,16 @@ export function fqdn(label: string, domain: string): string {
     return `${label}.${domain}`.toLowerCase();
 }
 
+/** The same rule as Labels::slugFromName and games.py: see the note there. */
+export function slugFromName(name: string): string {
+    return name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40)
+        .replace(/-+$/, '');
+}
+
 export const REASON_TEXT = {
     invalid: 'Use 1 to 63 lower-case letters, digits or hyphens, not starting or ending with a hyphen.',
     reserved: 'This name is reserved.',

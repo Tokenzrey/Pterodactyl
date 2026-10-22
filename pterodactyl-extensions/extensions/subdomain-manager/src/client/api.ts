@@ -8,9 +8,13 @@ const isObject = (value: unknown): value is Json => typeof value === 'object' &&
 const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string');
 const unexpected = (what: string) => new Error(`The ${what} has an unexpected shape.`);
 
+/** `routed` sends every name to the one port of the router; `per_port` gives each server its own (the default). */
+export type Mode = 'routed' | 'per_port';
+
 export interface SubdomainConfig {
     domains: string[];
     srv_enabled: boolean;
+    mode: Mode;
     reserved_labels: string[];
 }
 
@@ -21,7 +25,22 @@ export async function fetchConfig(): Promise<SubdomainConfig> {
         throw unexpected('subdomain configuration');
     }
 
-    return { domains: data.domains, srv_enabled: data.srv_enabled !== false, reserved_labels: data.reserved_labels };
+    return { domains: data.domains, srv_enabled: data.srv_enabled !== false, mode: data.mode === 'routed' ? 'routed' : 'per_port', reserved_labels: data.reserved_labels };
+}
+
+/** Whether games sync routes a server's name, and if not, why (FR-R5). */
+export interface Routing {
+    state: 'ready' | 'invalid';
+    reason: string | null;
+}
+
+/** Reads the routing answer of a list row or a form; null when the mode has no router (per-port) or there is no server. */
+export function parseRouting(value: unknown): Routing | null {
+    if (!isObject(value) || (value.state !== 'ready' && value.state !== 'invalid')) {
+        return null;
+    }
+
+    return { state: value.state, reason: typeof value.reason === 'string' ? value.reason : null };
 }
 
 export interface Availability {
@@ -89,6 +108,7 @@ export interface RecordRow {
     last_error: string | null;
     attempts: number;
     server: { id: number; name: string } | null;
+    routing: Routing | null;
     updated_at: string | null;
 }
 
@@ -118,6 +138,7 @@ export async function fetchRecords(query: { page: number; status?: Status; q?: s
                 last_error: typeof item.last_error === 'string' ? item.last_error : null,
                 attempts: typeof item.attempts === 'number' ? item.attempts : 0,
                 server,
+                routing: parseRouting(item.routing),
                 updated_at: typeof item.updated_at === 'string' ? item.updated_at : null,
             });
         }

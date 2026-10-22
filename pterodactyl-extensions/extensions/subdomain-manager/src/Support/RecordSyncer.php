@@ -32,6 +32,7 @@ final class RecordSyncer
             match ($record->status) {
                 Record::DELETING => $this->tearDown($record),
                 Record::PENDING, Record::FAILED => $this->build($record),
+                Record::ACTIVE => $this->srvDrifts($record) ? $this->build($record) : null,
                 default => null,
             };
         } catch (CloudflareException $e) {
@@ -69,7 +70,19 @@ final class RecordSyncer
             $this->deleteStored($record);
         }
 
-        if ($record->a_record_id === null) {
+        if ($this->config->routed) {
+            // Routed mode makes no A record for the server: the router answers for the name (FR-R3). A name that already
+            // has an A record which is not ours still conflicts, because it would take the name away from the router.
+            // That is checked once, when the name is first used; later syncs of the same name make no call here.
+            if ($record->a_record_id === null && $record->synced_name === null && ! $this->isFree($zone, 'A', $name)) {
+                $this->fail($record, $this->conflict($name));
+
+                return;
+            }
+            $record->zone_id = $zone;
+            $record->synced_name = $name;
+            $record->save();
+        } elseif ($record->a_record_id === null) {
             if (! $this->isFree($zone, 'A', $name)) {
                 $this->fail($record, $this->conflict($name));
 
@@ -101,9 +114,16 @@ final class RecordSyncer
             return null;
         }
 
-        $port = $this->config->srvPort > 0 ? $this->config->srvPort : $this->allocationPort($record);
+        $port = $this->srvPortFor($record);
         if ($port === null) {
             return 'SRV record skipped: the server has no primary allocation to take the port from';
+        }
+
+        // A different port (a mode switch, or a fixed port that changed): the old record goes first, by its stored id.
+        // Creating the new one first would leave the old one behind with its old port if removing it failed, and
+        // nothing would know its id any more (FR-R8).
+        if ($record->srv_record_id !== null && $record->srv_port !== $port) {
+            $this->deleteSrv($record);
         }
 
         if ($record->srv_record_id === null) {
@@ -114,6 +134,7 @@ final class RecordSyncer
                 return false;
             }
             $record->srv_record_id = $this->cf->createRecord($zone, Payloads::srv($srvName, $name, $port, $this->config->ttl));
+            $record->srv_port = $port;
             $record->save();
         }
 
@@ -158,6 +179,7 @@ final class RecordSyncer
         if ($record->srv_record_id !== null) {
             $this->cf->deleteRecord($record->zone_id, $record->srv_record_id);
             $record->srv_record_id = null;
+            $record->srv_port = null;
             $record->save();
         }
     }
@@ -171,6 +193,23 @@ final class RecordSyncer
     private function conflict(string $name): string
     {
         return 'conflict: Cloudflare already has a record named '.$name.' that this extension did not create; remove it there or pick another label';
+    }
+
+    /** The port the SRV record should carry now: the fixed one when set, otherwise the server's own allocation. */
+    private function srvPortFor(Record $record): ?int
+    {
+        return $this->config->srvPort > 0 ? $this->config->srvPort : $this->allocationPort($record);
+    }
+
+    /** An active row whose SRV record is on another port than the settings want (a mode switch, a changed port). */
+    private function srvDrifts(Record $record): bool
+    {
+        if ($record->srv_record_id === null || ! $this->config->srvEnabled) {
+            return false;
+        }
+        $port = $this->srvPortFor($record);
+
+        return $port !== null && $port !== $record->srv_port;
     }
 
     private function allocationPort(Record $record): ?int

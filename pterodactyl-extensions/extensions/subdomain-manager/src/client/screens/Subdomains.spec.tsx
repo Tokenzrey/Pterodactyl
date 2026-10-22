@@ -199,3 +199,22 @@ describe('Subdomains page', () => {
         expect(screen.queryByText('kampung.mc.example.com')).toBeNull();
     });
 });
+
+// FR-R5: each row says whether games sync routes its server's name, and why not. Rows without an answer say nothing.
+describe('routing', () => {
+    it('says which name games sync routes, and why another one is not', async () => {
+        rows = [ROW({ routing: { state: 'ready', reason: null } }), ROW({ id: 3, label: 'kecil', address: 'kecil.mc.example.com', routing: { state: 'invalid', reason: 'the allocation is 0.0.0.0, not 127.0.0.1' } })];
+        await renderInPanel(<Subdomains />);
+
+        expect(await screen.findByText('Routed by the router')).toBeTruthy();
+        expect(screen.getByText('Not routed: the allocation is 0.0.0.0, not 127.0.0.1')).toBeTruthy();
+    });
+
+    it('says nothing about routing for a row with no answer, as in per-port mode', async () => {
+        rows = [ROW({ routing: null })];
+        await renderInPanel(<Subdomains />);
+
+        expect(await screen.findByText('kampung.mc.example.com')).toBeTruthy();
+        expect(screen.queryByText(/Routed by the router|Not routed/)).toBeNull();
+    });
+});

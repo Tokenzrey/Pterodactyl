@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fqdn, labelProblem } from './labels';
+import { fqdn, labelProblem, slugFromName } from './labels';
 
 // Mirrors tests/Unit/LabelsTest.php: the form and the backend must agree on what a label is.
 
@@ -30,5 +30,31 @@ describe('labelProblem', () => {
 describe('fqdn', () => {
     it('joins label and domain in lower case', () => {
         expect(fqdn('kampung', 'MC.Example.com')).toBe('kampung.mc.example.com');
+    });
+});
+
+// FR-R2, AC-R1, NFR-R3: the same vectors as tests/Unit/LabelsTest.php.
+describe('slugFromName', () => {
+    it.each([
+        ['Kampung', 'kampung'],
+        ['Kampung 2!', 'kampung-2'],
+        ['Survival Utama', 'survival-utama'],
+        ['!!!', ''],
+        ['a   --  b', 'a-b'],
+        ['--a--', 'a'],
+        ['Kampung Ünï', 'kampung-n'],
+        ['Kamp', 'kamp'],
+        ['İstanbul', 'i-stanbul'],
+        ['a'.repeat(60), 'a'.repeat(40)],
+        ['a'.repeat(39) + ' b', 'a'.repeat(39)],
+    ])('turns %j into %j', (name, slug) => {
+        expect(slugFromName(name)).toBe(slug);
+    });
+
+    it('always gives a valid label when it gives anything', () => {
+        for (const name of ['Kampung 2!', 'Survival Utama', 'Kampung Ünï', 'Kamp', 'a'.repeat(60)]) {
+            const slug = slugFromName(name);
+            expect(slug === '' || labelProblem(slug, []) === null).toBe(true);
+        }
     });
 });

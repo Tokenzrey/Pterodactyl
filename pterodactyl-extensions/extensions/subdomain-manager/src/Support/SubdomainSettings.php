@@ -23,6 +23,9 @@ final readonly class SubdomainSettings
 
     public const MAX_RESERVED = 100;
 
+    /** The one public port of mc-router (games.py GAMES_PORT). Routed mode sends every SRV record here. */
+    public const ROUTED_PORT = 25565;
+
     public function __construct(private ExtensionSettingsDefinition $definition) {}
 
     public static function fromRegistry(ExtensionSettingsRegistry $registry): self
@@ -61,9 +64,16 @@ final readonly class SubdomainSettings
             Setting::make('srv_enabled', 'srv_enabled', true)
                 ->field('toggle')->tab('DNS')->label('Create an SRV record')
                 ->help('Lets Minecraft clients join with the name alone, without typing the port.'),
+            Setting::make('mode', 'mode', 'per_port', ['required', 'string', 'in:routed,per_port'])
+                ->field('select', [
+                    ['value' => 'per_port', 'label' => 'Per-port: every server has its own port (advanced)'],
+                    ['value' => 'routed', 'label' => 'Routed: one port (25565) through mc-router'],
+                ])
+                ->tab('DNS')->label('Mode')
+                ->help('Routed: players type the name only, and the router sends them to the right server. Per-port: every server needs its own port open at the router. Changing the mode updates every record.'),
             Setting::make('srv_port', 'srv_port', 0, ['nullable', 'integer', 'between:0,65535'])
                 ->field('number')->tab('DNS')->label('SRV port')
-                ->help('0 (default): every server uses its own primary allocation port, so each server needs its own port open at the router. A fixed number sends every name to that one port, which is only right behind a proxy.'),
+                ->help('Used in per-port mode only. 0 (default): every server uses its own primary allocation port. A fixed number sends every name to that one port, which is only right behind a proxy.'),
             Setting::make('ttl', 'ttl', 120, ['nullable', 'integer', static fn (string $attribute, mixed $value, \Closure $fail) => $value === null || $value === 1 || ($value >= 60 && $value <= 86400)
                 ? null
                 : $fail('The TTL must be 1 (automatic) or between 60 and 86400 seconds.')])
@@ -101,9 +111,15 @@ final readonly class SubdomainSettings
         return $this->definition->get('srv_enabled') !== false;
     }
 
+    /** `routed` (one port, names routed by mc-router) or `per_port`, which is the default and what anything unexpected means. */
+    public function mode(): string
+    {
+        return $this->definition->get('mode') === 'routed' ? 'routed' : 'per_port';
+    }
+
     public function syncConfig(): SyncConfig
     {
-        $port = $this->definition->get('srv_port');
+        $port = $this->mode() === 'routed' ? self::ROUTED_PORT : $this->definition->get('srv_port');
         $ttl = $this->definition->get('ttl');
         $ip = $this->definition->get('target_ipv4');
 
@@ -113,6 +129,7 @@ final readonly class SubdomainSettings
             $this->srvEnabled(),
             is_numeric($port) ? (int) $port : 0,
             is_numeric($ttl) ? (int) $ttl : 120,
+            $this->mode() === 'routed',
         );
     }
 

@@ -12,10 +12,12 @@ use Illuminate\Validation\ValidationException;
 use Pterodactyl\Extensions\Fields;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\User;
+use Pterodactyl\Services\Extensions\ExtensionSettingsRegistry;
 use SubdomainManager\Jobs\SyncRecord;
 use SubdomainManager\Models\Record;
 use SubdomainManager\Rules\NameIsFree;
 use SubdomainManager\Rules\ValidLabel;
+use SubdomainManager\Support\RoutedNames;
 use SubdomainManager\Support\SubdomainSettings;
 
 /**
@@ -32,8 +34,13 @@ final class SubdomainFields extends Fields
      */
     public function rules(?Server $server, SubdomainSettings $settings): array
     {
+        // In routed mode the label is the slug of the server's name (FR-R2). save() sets it, and says why when it cannot.
+        $label = $settings->mode() === 'routed'
+            ? ['nullable', 'string']
+            : ['nullable', 'string', new ValidLabel($settings->reservedLabels()), new NameIsFree($server?->uuid)];
+
         return [
-            'label' => ['nullable', 'string', new ValidLabel($settings->reservedLabels()), new NameIsFree($server?->uuid)],
+            'label' => $label,
             'domain' => ['nullable', 'string', 'required_with:label', Rule::in(array_keys($settings->domains()))],
         ];
     }
@@ -60,12 +67,15 @@ final class SubdomainFields extends Fields
     }
 
     /**
-     * @return array<string, string|null>
+     * @return array<string, mixed>
      */
     public function values(Server $server): array
     {
         $record = Record::query()->where('server_uuid', $server->uuid)->first();
         $removing = $record?->status === Record::DELETING;
+        $mode = SubdomainSettings::fromRegistry(app(ExtensionSettingsRegistry::class))->mode();
+        // Scalars only: the Panel drops an extension's whole set of values when one of them is an array it does not know.
+        $routing = RoutedNames::status($server, $mode);
 
         return [
             'label' => $record === null || $removing ? '' : $record->label,
@@ -73,6 +83,9 @@ final class SubdomainFields extends Fields
             'status' => $record?->status,
             'fqdn' => $record === null || $removing ? null : $record->fqdn(),
             'error' => $record?->last_error,
+            'mode' => $mode,
+            'routing_state' => $routing['state'] ?? null,
+            'routing_reason' => $routing['reason'] ?? null,
         ];
     }
 
@@ -82,6 +95,10 @@ final class SubdomainFields extends Fields
         $label = (string) ($values['label'] ?? '');
         $domain = strtolower((string) ($values['domain'] ?? ''));
         $record = Record::query()->where('server_uuid', $server->uuid)->first();
+
+        if ($settings->mode() === 'routed' && $label !== '') {
+            $label = $this->routedLabel($server); // whatever was typed: the name decides (FR-R2)
+        }
 
         if ($label === '') {
             // An empty label removes the subdomain (FR-S1). Nothing to do when there never was one.
@@ -116,6 +133,25 @@ final class SubdomainFields extends Fields
         }
 
         $this->dispatchAfterCommit($record);
+    }
+
+    /**
+     * Routed mode: the host name is the slug of the server's name, the same one `games sync` routes. Refused, with the
+     * reason, when the name gives none, or when another Minecraft server already has that slug (FR-R6, EC-R1).
+     */
+    private function routedLabel(Server $server): string
+    {
+        $slug = RoutedNames::label($server);
+        if ($slug === '') {
+            throw ValidationException::withMessages(['extensions.subdomain-manager.label' => 'The server name does not give a host name. Use letters or digits in the name.']);
+        }
+
+        $other = RoutedNames::takenBy($server, $slug);
+        if ($other !== null) {
+            throw ValidationException::withMessages(['extensions.subdomain-manager.label' => "The host name $slug is already used by the server \"$other\"."]);
+        }
+
+        return $slug;
     }
 
     private function dispatchAfterCommit(Record $record): void

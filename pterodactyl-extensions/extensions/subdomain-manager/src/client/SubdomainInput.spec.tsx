@@ -11,14 +11,16 @@ import { renderInPanel, usePanelHost } from './test-utils';
 
 usePanelHost();
 
-const CONFIG: SubdomainConfig = { domains: ['mc.example.com', 'play.example.org'], srv_enabled: true, reserved_labels: ['www', 'mail'] };
+const CONFIG: SubdomainConfig = { domains: ['mc.example.com', 'play.example.org'], srv_enabled: true, mode: 'per_port', reserved_labels: ['www', 'mail'] };
+/** What the config endpoint answers for the test in hand; routed-mode tests replace it. */
+let configFor: SubdomainConfig = CONFIG;
 const FREE: Availability = { available: true, reason: null, checked_cloudflare: true };
 
 type Props = FormExtensionProps<SubdomainValues, 'admin.server'>;
 let latest: SubdomainValues;
 
-function Harness({ initial = {}, errors = {}, serverId }: { initial?: Partial<SubdomainValues>; errors?: Partial<Record<keyof SubdomainValues, string>>; serverId?: number }) {
-    const [values, setValues] = useState<SubdomainValues>({ label: '', domain: '', status: null, fqdn: null, error: null, ...initial });
+function Harness({ initial = {}, errors = {}, serverId, serverName }: { initial?: Partial<SubdomainValues>; errors?: Partial<Record<keyof SubdomainValues, string>>; serverId?: number; serverName?: string }) {
+    const [values, setValues] = useState<SubdomainValues>({ label: '', domain: '', status: null, fqdn: null, error: null, mode: null, routing_state: null, routing_reason: null, ...initial });
     latest = values;
     const stable = useRef(values);
     stable.current = values;
@@ -30,7 +32,7 @@ function Harness({ initial = {}, errors = {}, serverId }: { initial?: Partial<Su
         setValue: (value: string) => setValues((previous) => ({ ...previous, [name]: value })),
         error: errors[name],
     })) as unknown as Props['field'];
-    const resource = serverId === undefined ? undefined : ({ object: 'server', attributes: { id: serverId } } as unknown as Props['resource']);
+    const resource = serverId === undefined ? undefined : ({ object: 'server', attributes: { id: serverId, name: serverName } } as unknown as Props['resource']);
 
     return <SubdomainInput form="admin.server" mode={serverId === undefined ? 'create' : 'edit'} resource={resource} values={values} field={field} />;
 }
@@ -44,8 +46,9 @@ beforeEach(() => {
     vi.spyOn(http, 'get').mockImplementation((async (url: string, config?: { params?: Record<string, unknown>; signal?: AbortSignal }) => {
         calls.push({ url, params: config?.params, signal: config?.signal });
 
-        return url.endsWith('/config') ? { data: CONFIG } : answer(config?.params ?? {}, config?.signal as AbortSignal);
+        return url.endsWith('/config') ? { data: configFor } : answer(config?.params ?? {}, config?.signal as AbortSignal);
     }) as never);
+    configFor = CONFIG;
 });
 
 afterEach(() => {
@@ -371,5 +374,50 @@ describe('the address block', () => {
 
         expect(document.body.textContent).toContain('10000: Authentication error');
         expect(screen.queryByText(/Delete that record|Finish the setup/)).toBeNull();
+    });
+});
+
+// FR-R2, FR-R4, FR-R5: in routed mode the label is the slug of the server's name, the address has no port, and the
+// form says whether games sync routes the name. The config endpoint says which mode is set.
+describe('routed mode', () => {
+    beforeEach(() => {
+        configFor = { ...CONFIG, mode: 'routed' };
+    });
+
+    it('takes the label from the server name, and does not let it be typed', async () => {
+        await ready(<Harness serverId={3} serverName="Kampung 2!" initial={{ label: 'kampung-2', domain: 'mc.example.com' }} />);
+
+        expect(labelInput().value).toBe('kampung-2');
+        expect(labelInput().disabled).toBe(true);
+    });
+
+    it('shows the address without a port, and says the name is all players type', async () => {
+        await ready(<Harness serverId={3} serverName="Kampung 2!" initial={{ label: 'kampung-2', domain: 'mc.example.com' }} />);
+
+        expect(screen.getByText('kampung-2.mc.example.com')).toBeTruthy();
+        expect(screen.getByText(/Players type the name only/)).toBeTruthy();
+        expect(screen.queryByText(/No port needed/)).toBeNull();
+    });
+
+    it('says the name will be routed when games sync routes it', async () => {
+        await ready(<Harness serverId={3} serverName="Kampung" initial={{ label: 'kampung', domain: 'mc.example.com', routing_state: 'ready', routing_reason: null, mode: 'routed' }} />);
+
+        expect(screen.getByText('Will be routed')).toBeTruthy();
+    });
+
+    it('says why a server is not routed', async () => {
+        await ready(<Harness serverId={3} serverName="Kampung" initial={{ label: 'kampung', domain: 'mc.example.com', routing_state: 'invalid', routing_reason: 'the allocation is 0.0.0.0, not 127.0.0.1', mode: 'routed' }} />);
+
+        expect(screen.getByText('Not routed')).toBeTruthy();
+        expect(document.body.textContent).toContain('the allocation is 0.0.0.0, not 127.0.0.1');
+    });
+
+    it('keeps the typed label and the port wording in per-port mode', async () => {
+        configFor = CONFIG;
+        await ready(<Harness serverId={3} serverName="Kampung" initial={{ label: 'kampung', domain: 'mc.example.com', routing_state: null, mode: 'per_port' }} />);
+
+        expect(labelInput().disabled).toBe(false);
+        expect(screen.getByText(/No port needed/)).toBeTruthy();
+        expect(screen.queryByText('Will be routed')).toBeNull();
     });
 });

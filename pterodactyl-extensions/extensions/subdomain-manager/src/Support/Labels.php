@@ -48,6 +48,18 @@ final class Labels
         return strtolower($label.'.'.$domain);
     }
 
+    /**
+     * The host-name part games.py derives from a server name (`slugify`): lower case, each run of other characters
+     * becomes one hyphen, hyphens trimmed, at most 40 characters. mb_strtolower matches Python's lower() for the
+     * characters that matter here (strtolower would leave the Kelvin sign alone and Python turns it into a k).
+     */
+    public static function slugFromName(string $name): string
+    {
+        $slug = trim((string) preg_replace('/[^a-z0-9]+/', '-', mb_strtolower($name, 'UTF-8')), '-');
+
+        return trim(substr($slug, 0, 40), '-');
+    }
+
     /** The name of the SRV record Minecraft clients look up for a host name. */
     public static function srvName(string $fqdn): string
     {

@@ -90,3 +90,25 @@ test('reserved entries are labels, or start with an underscore for service names
     ['x y', false],
     [str_repeat('a', 64), false],
 ]);
+
+// FR-R2, AC-R1, NFR-R3: the same rule as games.py slugify. The vectors are shared with src/client/labels.spec.ts.
+test('slugFromName matches games.py slugify', function (string $name, string $slug): void {
+    expect(Labels::slugFromName($name))->toBe($slug);
+})->with([
+    'plain' => ['Kampung', 'kampung'],
+    'digit and punctuation' => ['Kampung 2!', 'kampung-2'],
+    'space' => ['Survival Utama', 'survival-utama'],
+    'only punctuation' => ['!!!', ''],
+    'runs collapse' => ['a   --  b', 'a-b'],
+    'edge hyphens' => ['--a--', 'a'],
+    'non-ascii letters' => ['Kampung Ünï', 'kampung-n'],
+    'kelvin sign lower-cases to k' => ["\u{212A}amp", 'kamp'],
+    'dotted capital i' => ["\u{130}stanbul", 'i-stanbul'],
+    'long name cut to 40' => [str_repeat('a', 60), str_repeat('a', 40)],
+    'cut does not leave a hyphen' => [str_repeat('a', 39).' b', str_repeat('a', 39)],
+]);
+
+test('a non-empty slug is always a valid label', function (string $name): void {
+    $slug = Labels::slugFromName($name);
+    expect($slug === '' || Labels::problem($slug, []) === null)->toBeTrue();
+})->with(['Kampung 2!', 'Survival Utama', 'Kampung Ünï', "\u{212A}amp", str_repeat('a', 60), str_repeat('a', 39).' b']);

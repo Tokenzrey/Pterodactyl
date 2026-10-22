@@ -185,6 +185,11 @@ export default function Subdomains() {
                         <Badge tone={meta.tone} variant="soft" className={meta.tone === 'neutral' || meta.tone === 'warning' ? 'sdm:text-foreground' : undefined}>
                             {meta.text}
                         </Badge>
+                        {row.routing ? (
+                            <span className="sdm:text-xs sdm:text-foreground/80">
+                                {row.routing.state === 'ready' ? 'Routed by the router' : `Not routed: ${row.routing.reason ?? 'unknown reason'}`}
+                            </span>
+                        ) : null}
                         {row.last_error ? <span className="sdm:text-xs sdm:text-foreground/80">{row.last_error}</span> : null}
                         {advice ? <span className="sdm:text-xs">{advice}</span> : null}
                     </div>

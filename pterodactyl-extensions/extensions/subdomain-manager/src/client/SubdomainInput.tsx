@@ -4,7 +4,7 @@ import { Check, CircleAlert, Copy, LoaderCircle, Trash2 } from 'lucide-react';
 import { useEffect } from 'react';
 import { fetchConfig } from './api';
 import { Notice } from './Notice';
-import { errorAdvice, fqdn, isStatus, labelProblem, REASON_TEXT, STATUS_META } from './labels';
+import { errorAdvice, fqdn, isStatus, labelProblem, REASON_TEXT, slugFromName, STATUS_META } from './labels';
 import { useAvailability } from './useAvailability';
 
 /** What the backend's SubdomainFields returns and accepts; `label` and `domain` are edited, the rest is read only. */
@@ -14,6 +14,11 @@ export type SubdomainValues = {
     status: string | null;
     fqdn: string | null;
     error: string | null;
+    /** The mode the settings set (`routed` or `per_port`). */
+    mode: string | null;
+    /** Whether games sync routes this server's name, and why not (routed mode only). */
+    routing_state: string | null;
+    routing_reason: string | null;
 };
 
 /**
@@ -29,7 +34,12 @@ export function SubdomainInput({ resource, values, field }: FormExtensionProps<S
     const domainValue = domain.value ?? '';
     const domains = config.data?.domains ?? [];
     const serverId = resource?.attributes.id;
-    const hasAddress = labelValue !== '' && domainValue !== '';
+    // Routed mode: the label is the slug of the server's name, and the form cannot change it (FR-R2). Without a saved
+    // server (create) there is no name to read here, so the label stays empty until the server is saved.
+    const routed = config.data?.mode === 'routed';
+    const serverName = String((resource?.attributes as { name?: unknown } | undefined)?.name ?? '');
+    const shownLabel = routed ? slugFromName(serverName) : labelValue;
+    const hasAddress = shownLabel !== '' && domainValue !== '';
 
     // A label without a domain can never be saved: start from the first configured domain.
     useEffect(() => {
@@ -39,14 +49,15 @@ export function SubdomainInput({ resource, values, field }: FormExtensionProps<S
         // `domain.setValue` is a new function on every render, so it is left out of the dependencies on purpose.
     }, [labelValue, domainValue, domains.join('|')]);
 
-    const local = config.data ? labelProblem(labelValue, config.data.reserved_labels) : null;
-    const availability = useAvailability(domainValue, labelValue, serverId, Boolean(config.data) && hasAddress && local === null);
+    const local = config.data ? labelProblem(shownLabel, config.data.reserved_labels) : null;
+    const availability = useAvailability(domainValue, shownLabel, serverId, Boolean(config.data) && hasAddress && local === null);
 
     const savedAddress = values.fqdn;
     const removing = labelValue === '' && Boolean(savedAddress);
     const status = isStatus(values.status) ? STATUS_META[values.status] : null;
     const advice = errorAdvice(values.error ?? null);
-    const address = hasAddress ? fqdn(labelValue, domainValue) : null;
+    const address = hasAddress ? fqdn(shownLabel, domainValue) : null;
+    const routing = routed && (values.routing_state === 'ready' || values.routing_state === 'invalid') ? values.routing_state : null;
 
     return (
         <section aria-labelledby="sdm-heading" className="sdm:mt-6 sdm:flex sdm:flex-col sdm:gap-4">
@@ -74,13 +85,13 @@ export function SubdomainInput({ resource, values, field }: FormExtensionProps<S
                     <Input
                         id={label.id}
                         name={label.name}
-                        value={labelValue}
+                        value={shownLabel}
                         onChange={(event) => label.setValue(event.target.value.toLowerCase())}
-                        disabled={domains.length === 0}
+                        disabled={domains.length === 0 || routed}
                         maxLength={63}
                         autoComplete="off"
                         spellCheck={false}
-                        placeholder="kampung"
+                        placeholder={routed ? 'from the server name' : 'kampung'}
                         aria-invalid={Boolean(label.error) || local !== null}
                         aria-describedby="sdm-address sdm-check"
                         $hasError={Boolean(label.error) || local !== null}
@@ -115,7 +126,11 @@ export function SubdomainInput({ resource, values, field }: FormExtensionProps<S
                             </CopyOnClick>
                         </div>
                         <p className="sdm:mt-1 sdm:text-xs sdm:text-foreground/80">
-                            {config.data?.srv_enabled === false ? 'The server port must be added after the name.' : 'No port needed: an SRV record points the name at the right port.'}
+                            {routed
+                                ? 'Players type the name only: the router sends them to the right server.'
+                                : config.data?.srv_enabled === false
+                                  ? 'The server port must be added after the name.'
+                                  : 'No port needed: an SRV record points the name at the right port.'}
                         </p>
                     </>
                 ) : removing ? (
@@ -155,6 +170,22 @@ export function SubdomainInput({ resource, values, field }: FormExtensionProps<S
                 <Notice tone="danger" title="The domain was not saved">
                     {domain.error}
                 </Notice>
+            ) : null}
+
+            {routing ? (
+                <div className="sdm:rounded-md sdm:border sdm:border-border sdm:p-3">
+                    <div className="sdm:flex sdm:items-center sdm:gap-2">
+                        <span className="sdm:text-sm sdm:font-medium">Routing</span>
+                        <Badge tone={routing === 'ready' ? 'success' : 'danger'} variant="soft">
+                            {routing === 'ready' ? 'Will be routed' : 'Not routed'}
+                        </Badge>
+                    </div>
+                    <p className="sdm:mt-1 sdm:text-sm sdm:text-foreground/80">
+                        {routing === 'ready'
+                            ? 'Games sync sends this name to the router, which forwards it to the server.'
+                            : `Games sync does not route this name: ${values.routing_reason ?? 'the server is not set up for routing'}.`}
+                    </p>
+                </div>
             ) : null}
 
             {status ? (

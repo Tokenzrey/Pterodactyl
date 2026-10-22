@@ -42,7 +42,8 @@ describe('config (AC-S13)', function (): void {
 
         $response = $this->getJson(CFG)->assertOk();
 
-        expect($response->json())->toBe(['domains' => ['mc.example.com', 'play.example.org'], 'srv_enabled' => false, 'reserved_labels' => ['www', 'mail']]);
+        // `mode` is the one addition for routed mode (FR-R1); the list still holds nothing else.
+        expect($response->json())->toBe(['domains' => ['mc.example.com', 'play.example.org'], 'srv_enabled' => false, 'mode' => 'per_port', 'reserved_labels' => ['www', 'mail']]);
     });
 
     test('AC-S13 FR-S12 neither the token nor a zone id is in the body, and no header gives them away', function (): void {

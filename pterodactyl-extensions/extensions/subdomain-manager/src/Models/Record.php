@@ -20,6 +20,7 @@ use SubdomainManager\Support\Labels;
  * @property string|null $synced_name
  * @property string|null $a_record_id
  * @property string|null $srv_record_id
+ * @property int|null $srv_port the port the SRV record was made with
  * @property string $status
  * @property string|null $last_error
  * @property int $attempts
@@ -40,7 +41,7 @@ class Record extends Model
 
     protected function casts(): array
     {
-        return ['server_id' => 'integer', 'attempts' => 'integer'];
+        return ['server_id' => 'integer', 'attempts' => 'integer', 'srv_port' => 'integer'];
     }
 
     /** The host name this row asks for. */

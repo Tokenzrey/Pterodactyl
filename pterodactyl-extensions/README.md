@@ -40,9 +40,20 @@ Setiap server game punya port sendiri yang diteruskan ke node Panel:
 4. Pemain mengetik `a.mc.domain` untuk server A dan `b.mc.domain` untuk server B di kolom alamat server. SRV mengarahkan ke port yang benar. Kalau SRV dimatikan, pemain mengetik port sendiri: `a.mc.domain:25565`.
 
 Catatan:
-- Jangan isi SRV port dengan angka tetap (misalnya 25565) untuk banyak server. Semua nama akan menuju port itu, dan pemain bisa masuk ke server yang salah tanpa error.
-- Jika alokasi utama sebuah server berubah (misalnya setelah dipindah), record SRV-nya tidak ikut berubah. Hapus lalu simpan ulang label server itu.
-- Install yang sudah dibuat dengan default lama (25565) tidak berubah sendiri. Record yang ada tetap menunjuk port lamanya. Ubah SRV port ke `0`, lalu simpan ulang label yang bersangkutan.
+- SRV port tetap (misalnya 25565) hanya masuk akal di mode per-port dengan proxy di depannya. Semua nama akan menuju port itu, dan pemain bisa masuk ke server yang salah tanpa error. Untuk satu port publik yang merutekan lewat nama, pakai mode **Routed** di bawah.
+- Jika alokasi utama sebuah server berubah, record SRV-nya diperbarui sendiri dalam 5 menit (reconcile). Untuk langsung, jalankan `subdomain-manager:resync`.
+- Record yang dibuat sebelum mode routed ada (tanpa port tersimpan) diganti sekali, otomatis, dalam 5 menit.
+
+### Mode routed: satu port 25565 lewat mc-router
+
+Dengan **Mode: Routed** di pengaturan Subdomain Manager, semua server Minecraft dirutekan lewat satu port publik (mc-router, lihat `./ptero games`). Nama host diambil dari nama server: `Survival Utama` menjadi `survival-utama.mc.<domain>`.
+
+1. Pastikan record wildcard `*.mc.<domain>` (DNS only) ada di Cloudflare. Extension tidak memeriksanya.
+2. Admin → Extensions → Subdomain Manager → DNS → **Mode**: pilih **Routed**, lalu simpan. Semua record diperbarui sendiri.
+3. Jalankan `./ptero games sync` (atau tunggu timer 2 menit).
+4. Pemain mengetik `survival-utama.mc.<domain>` tanpa port.
+
+Nama server yang slugnya sudah dipakai server Minecraft lain ditolak, dan rename ke nama seperti itu juga ditolak. Lihat [README extension](extensions/subdomain-manager/README.md).
 
 ## Membangun dan menguji (lingkungan dev)
 

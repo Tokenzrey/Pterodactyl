@@ -14,6 +14,8 @@ final readonly class SyncConfig
         public bool $srvEnabled,
         public int $srvPort,
         public int $ttl,
+        /** Routed mode: no A record per server; the router answers for the name (FR-R3). */
+        public bool $routed = false,
     ) {}
 
     public function zoneFor(string $domain): ?string
