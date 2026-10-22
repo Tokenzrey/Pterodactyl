@@ -154,3 +154,30 @@ export async function retryRecord(id: number): Promise<void> {
 export async function removeRecord(id: number): Promise<void> {
     await http.delete(`${BASE}/records/${id}`);
 }
+
+/** What the server console shows its owner about the server's address (the owner's API, not the admin one). */
+export interface ServerAddress {
+    address: string | null;
+    status: string | null;
+    mode: Mode;
+    needs_port: boolean;
+    routing: Routing | null;
+}
+
+/** One cache entry per server, shared by the console and the dashboard, so a page asks once. */
+export const serverAddressKey = (uuid: string) => ['subdomain-manager', 'server-address', uuid] as const;
+
+export async function fetchServerAddress(uuid: string): Promise<ServerAddress> {
+    const { data } = await http.get<unknown>(`/api/client/servers/${uuid}/extensions/subdomain-manager/address`);
+    if (!isObject(data)) {
+        throw unexpected('server address');
+    }
+
+    return {
+        address: typeof data.address === 'string' ? data.address : null,
+        status: typeof data.status === 'string' ? data.status : null,
+        mode: data.mode === 'routed' ? 'routed' : 'per_port',
+        needs_port: data.needs_port === true,
+        routing: parseRouting(data.routing),
+    };
+}

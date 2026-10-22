@@ -33,6 +33,7 @@ class SubdomainManagerProvider extends ExtensionProvider
     {
         // GET /api/admin/extensions/subdomain-manager/{config,availability}, root administrators only.
         $this->registerAdminApiRoutes($this->extensionPath('routes', 'admin.php'));
+        $this->registerServerApiRoutes($this->extensionPath('routes', 'server.php'));
 
         // Admin settings form (Cloudflare token, domains, target IP, SRV, TTL, reserved labels).
         $this->registerSettings(SubdomainSettings::define($this->settings()));
