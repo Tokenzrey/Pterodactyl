@@ -373,9 +373,11 @@ def resolve_curseforge(env, workdir, download=True):
     label = mod.get("name") or mod.get("slug")
     mc, loader = cf_meta_versions(f)
     spid = f.get("serverPackFileId")
+    # A pinned server pack is its own download; a client pack names the server pack it goes with.
+    server = bool(spid) or bool(f.get("isServerPack"))
     use = cf(env, f"/v1/mods/{mod['id']}/files/{spid}") if spid else f
-    log(f"CurseForge: {label} / {f.get('displayName') or f.get('fileName')}" + (" (server pack)" if spid else " (client pack: mods resolved one by one)"))
-    pack = Pack(source="curseforge", label=label, version=str(f["id"]), mc=mc, loader=loader, kind="server-zip" if spid else "cf-manifest",
+    log(f"CurseForge: {label} / {f.get('displayName') or f.get('fileName')}" + (" (server pack)" if server else " (client pack: mods resolved one by one)"))
+    pack = Pack(source="curseforge", label=label, version=str(f["id"]), mc=mc, loader=loader, kind="server-zip" if server else "cf-manifest",
                 cf={"mod": mod, "file": use})
     if not download:
         return pack
@@ -384,6 +386,8 @@ def resolve_curseforge(env, workdir, download=True):
         raise InstallError(f"the author disabled downloads of '{use.get('fileName')}' through the API. Download it in a browser and use the url source with a direct link you host, or ask the author for an API-enabled file")
     pack.path = os.path.join(workdir, use["fileName"])
     fetch(url, pack.path, "sha1", cf_sha1(use), hosts=CF_FILE_HOSTS)
+    if pack.kind == "server-zip":
+        pack.path = unwrap_server_zip(pack.path, workdir)
     if pack.kind == "cf-manifest":
         with zipfile.ZipFile(pack.path) as z:
             man = json.loads(z.read("manifest.json"))
@@ -402,6 +406,23 @@ def resolve_curseforge(env, workdir, download=True):
         pack.loader_version = info["loader_version"]
         pack.mods = info["mods"]
     return pack
+
+
+def unwrap_server_zip(path, workdir):
+    """Some server packs are a zip that holds the real server zip next to a readme. Use the inner zip; any other zip stays as it is."""
+    with zipfile.ZipFile(path) as z:
+        names = [n for n in z.namelist() if not n.endswith("/")]
+        if any(re.search(r"(^|/)(mods/|libraries/|run\.(sh|bat)$)", n) for n in names):
+            return path
+        inner = [n for n in names if n.lower().endswith(".zip")]
+        if len(inner) != 1:
+            return path
+        out = os.path.join(workdir, "server-pack.zip")
+        with z.open(inner[0]) as src, open(out, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+    os.remove(path)   # the outer copy is no longer needed: keep the server disk for the server itself
+    log(f"the download holds the server zip '{inner[0]}': using that")
+    return out
 
 
 def apply_cf_manifest(env, pack, dest, record):

@@ -323,6 +323,17 @@ class TestCurseForge(Base):
             inst.install_loader = orig
         self.assertEqual(seen, ["21.1.259"])
 
+    def test_nested_server_pack(self):
+        # Prominence II: the server pack is a zip that holds the real server zip and a readme, pinned by its own file id
+        inner = zipbytes({"mods/a.jar": "1", "run.sh": "java @libraries/net/minecraftforge/forge/1.20.1-47.4.0/unix_args.txt"})
+        outer = zipbytes({"Pack_server_pack.zip": inner, "readme.txt": "read me first"})
+        sp = self.file(2, "server.zip", outer, isServerPack=True)
+        self.mock.routes["/v1/mods/111/files/2"] = (200, {"data": sp})
+        inst.install(self.cf_env(MODPACK_VERSION="2"), self.dest)
+        self.assertEqual(self.read("mods/a.jar"), b"1")
+        self.assertEqual(self.read("launch.args").strip(), b"@libraries/net/minecraftforge/forge/1.20.1-47.4.0/unix_args.txt")
+        self.assertFalse(os.path.exists(os.path.join(self.dest, "Pack_server_pack.zip")), "the inner zip is unpacked, not kept as a file")
+
     def test_manifest_pack(self):
         m1 = self.file(11, "m1.jar", b"M1")
         m2 = self.file(12, "client.jar", b"C", gameVersions=["1.20.1", "Client"])
