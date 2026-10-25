@@ -60,7 +60,7 @@ no_comments() { grep -v '^[[:space:]]*#' "$STACK"; }
 socks=$(no_comments | grep 'docker\.sock')
 assert_eq 1 "$(grep -c . <<<"$socks")" "docker.sock is mounted once"
 [[ $socks == *'/var/run/docker.sock:/var/run/docker.sock:ro' ]] && pass "and read-only (:ro)" || fail "docker.sock is mounted :ro" "$socks"
-assert_eq '      - "25565:25565"' "$(no_comments | awk '/^[[:space:]]*ports:/ {p=1; next} p && /^[[:space:]]*-/ {print; next} {p=0}')" "exactly one published port, 25565:25565"
+assert_eq '      - "${MCCTL_ROUTER_BIND:?run through mcctl}:25565:25565"' "$(no_comments | awk '/^[[:space:]]*ports:/ {p=1; next} p && /^[[:space:]]*-/ {print; next} {p=0}')" "exactly one published port, 25565:25565"
 assert_eq 1 "$(no_comments | grep -c '^[[:space:]]*ports:')" "(one ports: key in the whole file)"
 svc() { awk -v s="$1" '$0 == "  " s ":" { f = 1; next } f && /^[^ ]/ { exit } f && /^  [a-z]/ { exit } f' "$STACK"; }
 assert_eq "mc-router,egress-guard" "$(sed -n '/^services:/,/^networks:/p' "$STACK" | grep -E '^  [a-z]' | tr -d ':' | tr -d ' ' | paste -sd, -)" "the services are mc-router and egress-guard"

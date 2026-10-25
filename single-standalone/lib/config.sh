@@ -83,7 +83,7 @@ load_envfile() {
 }
 
 # load_config: MCCTL_ROOT, then config/mcctl.env (optional), then the defaults; every value that is set is validated and every
-# problem is reported before returning 1. Exports MCCTL_ROOT, MCCTL_DOMAIN, MCCTL_PUBLIC_IPV4, MCCTL_CF_ZONE_ID,
+# problem is reported before returning 1. Exports MCCTL_ROOT, MCCTL_DNS, MCCTL_DOMAIN, MCCTL_PUBLIC_IPV4, MCCTL_CF_ZONE_ID,
 # MCCTL_GAME_SUBNET and MCCTL_ROUTER_IP. A key that is empty is "not set"; require_config says which commands need which.
 load_config() {
     local rc=0
@@ -93,11 +93,15 @@ load_config() {
     elif [[ -f $MCCTL_ROOT/config/mcctl.env ]]; then
         load_envfile "$MCCTL_ROOT/config/mcctl.env" || rc=1
     fi
-    : "${MCCTL_DOMAIN:=}" "${MCCTL_PUBLIC_IPV4:=}" "${MCCTL_CF_ZONE_ID:=}" "${MCCTL_GAME_SUBNET:=172.30.0.0/24}" "${MCCTL_ROUTER_IP:=172.30.0.2}"
+    : "${MCCTL_DNS:=on}" "${MCCTL_DOMAIN:=}" "${MCCTL_PUBLIC_IPV4:=}" "${MCCTL_CF_ZONE_ID:=}" "${MCCTL_GAME_SUBNET:=172.30.0.0/24}" "${MCCTL_ROUTER_IP:=172.30.0.2}"
     : "${MCCTL_CONN_LIMIT:=10}" "${MCCTL_RATE:=10/second}" "${MCCTL_SSH_PORTS:=}" "${MCCTL_FIREWALL_ROLLBACK_SECONDS:=300}"
-    export MCCTL_ROOT MCCTL_DOMAIN MCCTL_PUBLIC_IPV4 MCCTL_CF_ZONE_ID MCCTL_GAME_SUBNET MCCTL_ROUTER_IP
+    # local play (MCCTL_DNS=off) needs no zone: the names only have to resolve on this machine, through its hosts file
+    if [[ $MCCTL_DNS == off && -z $MCCTL_DOMAIN ]]; then MCCTL_DOMAIN=mc.local; fi
+    export MCCTL_ROOT MCCTL_DNS MCCTL_DOMAIN MCCTL_PUBLIC_IPV4 MCCTL_CF_ZONE_ID MCCTL_GAME_SUBNET MCCTL_ROUTER_IP
     export MCCTL_CONN_LIMIT MCCTL_RATE MCCTL_SSH_PORTS MCCTL_FIREWALL_ROLLBACK_SECONDS
 
+    [[ $MCCTL_DNS == on || $MCCTL_DNS == off ]] \
+        || { err "MCCTL_DNS='$MCCTL_DNS' must be on (a DNS record per server in Cloudflare) or off (local play: no Cloudflare, no token)"; rc=1; }
     [[ -z $MCCTL_DOMAIN ]] || valid_domain "$MCCTL_DOMAIN" \
         || { err "MCCTL_DOMAIN='$MCCTL_DOMAIN' is not a valid lower-case host name without scheme or path (e.g. mc.yourdomain.net)"; rc=1; }
     [[ -z $MCCTL_PUBLIC_IPV4 ]] || valid_ipv4 "$MCCTL_PUBLIC_IPV4" \
@@ -139,6 +143,14 @@ require_config() {
     ((${#missing[@]} == 0)) || die "missing configuration: ${missing[*]} (set it in $MCCTL_ROOT/config/mcctl.env or the environment; see config/mcctl.env.example)" "$EX_PREFLIGHT"
 }
 
+# dns_on: 0 unless MCCTL_DNS is off. Off is local play: no Cloudflare call, no DNS record, no token; the router publishes 127.0.0.1 only
+dns_on() { [[ ${MCCTL_DNS:-on} != off ]]; }
+
+# dns_hint FQDN: with DNS off, tell the player what to add to the hosts file of the machine the Minecraft client runs on
+dns_hint() {
+    dns_on || info "DNS is off: to join from this machine, add the line '127.0.0.1 ${1-}' to its hosts file (Windows: C:\\Windows\\System32\\drivers\\etc\\hosts)"
+}
+
 # ---- commands ----------------------------------------------------------------------------------------------------------------
 
 cmd_init() {
@@ -167,6 +179,8 @@ cmd_doctor() {
     DOCTOR_FAILS=0
     load_config   # prints each problem; the config line below says whether there were any
     doctor_line $? "config" "see the ERROR lines above"
+    if dns_on; then doctor_line 0 "DNS on: one record per server under $MCCTL_DOMAIN, in Cloudflare"
+    else doctor_line 0 "DNS off: local play, no Cloudflare; names under $MCCTL_DOMAIN resolve through the hosts file"; fi
     ((BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4)))
     doctor_line $? "bash ${BASH_VERSION%%[( ]*}" "mcctl needs bash >= 4.4"
     if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then doctor_line 0 "docker compose"

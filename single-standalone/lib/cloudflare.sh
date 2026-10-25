@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # Cloudflare DNS: one A record per server, HOST.MCCTL_DOMAIN -> MCCTL_PUBLIC_IPV4. Sourced by ./mcctl, never executed.
+# With MCCTL_DNS=off (dns_on in lib/config.sh is false) none of these functions calls Cloudflare: local play needs no zone and no token.
 #
 # Every record mcctl makes is DNS-only (proxied: false; Cloudflare's proxy does not carry Minecraft, so the record shows this
 # machine's public address) and carries the comment "mcctl name=<server>". mcctl deletes only records whose comment starts with
@@ -33,6 +34,7 @@ _cf_token() {
 # and MCCTL_CF_ZONE_ID are set, curl and jq exist, and secrets/cloudflare_token holds a token.
 cf_ready() {
     local t
+    dns_on || return 0
     require_config MCCTL_DOMAIN MCCTL_PUBLIC_IPV4 MCCTL_CF_ZONE_ID
     for t in curl jq; do
         command -v "$t" >/dev/null 2>&1 || die "$t is needed to talk to Cloudflare: install the '$t' package" "$EX_PREFLIGHT"
@@ -73,6 +75,7 @@ _cf_describe() { jq -r '"\(.type) \(.name) -> \(.content), comment \(.comment //
 # run. When the POST fails the answer may only have been lost on the way back, so any mcctl record of that name is deleted again.
 cf_create_record() {
     local host=${1-} name=${2:-${1-}} fqdn recs body out id
+    dns_on || return 0   # DNS off: no record, nothing printed
     valid_server_name "$host" || { err "invalid host name ${host@Q}"; return "$EX_USAGE"; }
     fqdn=$(fqdn_for "$host")
     recs=$(cf_records "name=$fqdn") || return 1
@@ -117,6 +120,7 @@ CF_OWNED='(.id | type == "string" and test("\\A[A-Za-z0-9]+\\z"))
 # 0 when no such record is left (also when there was none); 1, naming each record that could not be deleted, otherwise.
 cf_delete_record() {
     local host=${1-} c=${2:+mcctl name=$2} fqdn recs l
+    dns_on || return 0
     valid_server_name "$host" || { err "invalid host name ${host@Q}"; return "$EX_USAGE"; }
     fqdn=$(fqdn_for "$host")
     recs=$(cf_records "name=$fqdn") || { warn "could not look up the DNS record $fqdn, so it was not deleted"; return 1; }
@@ -131,6 +135,7 @@ cf_delete_record() {
 cf_delete_server() {
     local name=${1-} recs ids
     CF_FOUND=0
+    dns_on || return 0
     valid_server_name "$name" || { err "invalid server name ${name@Q}"; return "$EX_USAGE"; }
     recs=$(cf_records "comment.exact=mcctl%20name%3D$name") || { warn "could not ask Cloudflare for the DNS records of $name"; return 1; }
     ids=$(jq -r --arg c "mcctl name=$name" --arg d ".$MCCTL_DOMAIN" \
@@ -154,6 +159,7 @@ _cf_patch_comment() {
 # cf_create_record does for a POST whose answer was lost).
 cf_relabel_record() {
     local host=${1-} old=${2-} new=${3-} fqdn recs id
+    dns_on || return 0
     valid_server_name "$host" || { err "invalid host name ${host@Q}"; return "$EX_USAGE"; }
     valid_server_name "$old" && valid_server_name "$new" || { err "invalid server name ${old@Q} or ${new@Q}"; return "$EX_USAGE"; }
     fqdn=$(fqdn_for "$host")

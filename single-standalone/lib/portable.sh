@@ -134,6 +134,7 @@ cmd_clone() {
     fi
     _provision "$new" "$host" _clone_files
     info "cloned $src to $new (stopped). Start it with: mcctl start $new; players join at $(fqdn_for "$host")"
+    dns_hint "$(fqdn_for "$host")"
 }
 
 # _clone_files NEW HOST: the files of a clone (the WRITE_FN of _provision). It reads $src and $data from cmd_clone (dynamic scope).
@@ -297,6 +298,7 @@ cmd_rename() {
     fi
     if ((ran)); then what="started again"; else what="still stopped"; fi
     info "renamed $old to $new: $(fqdn_for "$host"), $what"
+    dns_hint "$(fqdn_for "$host")"
 }
 
 # ---- export and import -----------------------------------------------------------------------------------------------------------
@@ -394,6 +396,7 @@ cmd_import() {
     cf_ready
     _provision "$name" "$host" _import_files
     info "imported $arch as $name (stopped). Start it with: mcctl start $name; players join at $(fqdn_for "$host")"
+    dns_hint "$(fqdn_for "$host")"
 }
 
 # _import_files NAME HOST: the files of an import (the WRITE_FN of _provision). It reads $arch, $names and $mname from cmd_import (dynamic

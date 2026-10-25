@@ -52,17 +52,29 @@ if [[ $(printf '1.10\n1.9\n' | sort -V | head -n 1) == 1.9 ]]; then pass "sort -
 
 # mcctl, configuration, secrets
 if [[ -x $HOME_DIR/mcctl ]]; then pass "mcctl is executable"; else fail "mcctl is executable" "run: chmod +x $HOME_DIR/mcctl"; fi
-for k in MCCTL_DOMAIN MCCTL_PUBLIC_IPV4 MCCTL_CF_ZONE_ID; do
-    if [[ -n $(cfg "$k") ]]; then pass "$k is set"
-    elif [[ $k != MCCTL_DOMAIN ]] && grep -qi microsoft "$SYS/proc/version" 2>/dev/null; then note "$k not checked on WSL: DNS records need the public host (host A)"
-    else fail "$k is set" "set it in $ROOT/config/mcctl.env (see config/mcctl.env.example)"; fi
-done
-for f in cloudflare_token curseforge_api_key; do
-    p=$ROOT/secrets/$f
-    if [[ ! -f $p ]]; then fail "secrets/$f" "missing; create it, mode 600"; continue; fi
+dns=$(cfg MCCTL_DNS); dns=${dns:-on}
+if [[ $dns == off ]]; then
+    note "MCCTL_DNS=off: local play, so no DNS keys, no Cloudflare token and no zone are needed"
+elif [[ $dns != on ]]; then
+    fail "MCCTL_DNS is on or off" "is '$dns'; set it in $ROOT/config/mcctl.env"
+else
+    for k in MCCTL_DOMAIN MCCTL_PUBLIC_IPV4 MCCTL_CF_ZONE_ID; do
+        if [[ -n $(cfg "$k") ]]; then pass "$k is set"; else fail "$k is set" "set it in $ROOT/config/mcctl.env (see config/mcctl.env.example)"; fi
+    done
+    p=$ROOT/secrets/cloudflare_token
+    if [[ ! -f $p ]]; then fail "secrets/cloudflare_token" "missing; create it, mode 600 (MCCTL_DNS=on needs it)"
+    else
+        m=$(stat -c %a -- "$p" 2>/dev/null)
+        if [[ $m == 600 || $m == 400 ]]; then pass "secrets/cloudflare_token exists, mode $m"; else fail "secrets/cloudflare_token mode" "is ${m:-unknown}; run: chmod 600 $p"; fi
+    fi
+fi
+# the CurseForge key is needed only by a CurseForge modpack, and create refuses such a pack without it
+p=$ROOT/secrets/curseforge_api_key
+if [[ ! -f $p ]]; then note "secrets/curseforge_api_key not set: needed only for a CurseForge modpack"
+else
     m=$(stat -c %a -- "$p" 2>/dev/null)
-    if [[ $m == 600 || $m == 400 ]]; then pass "secrets/$f exists, mode $m"; else fail "secrets/$f mode" "is ${m:-unknown}; run: chmod 600 $p"; fi
-done
+    if [[ $m == 600 || $m == 400 ]]; then pass "secrets/curseforge_api_key exists, mode $m"; else fail "secrets/curseforge_api_key mode" "is ${m:-unknown}; run: chmod 600 $p"; fi
+fi
 
 # kernel and Docker
 for m in xt_connlimit xt_hashlimit xt_conntrack; do

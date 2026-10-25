@@ -18,6 +18,10 @@ stack_dc() {
     MCCTL_DOCKER_GID=$(stat -L -c %g -- "${MCCTL_DOCKER_SOCKET:-/var/run/docker.sock}" 2>/dev/null) \
         || { err "cannot read the group of the Docker socket (${MCCTL_DOCKER_SOCKET:-/var/run/docker.sock}): is Docker running?"; return "$EX_PREFLIGHT"; }
     export MCCTL_DOCKER_GID
+    # local play (DNS off): the game port is for this machine only; with DNS on it is published on every address, as before
+    MCCTL_ROUTER_BIND=127.0.0.1
+    if dns_on; then MCCTL_ROUTER_BIND=0.0.0.0; fi
+    export MCCTL_ROUTER_BIND
     docker compose -p "$STACK_PROJECT" -f "$STACK_COMPOSE" "$@"
 }
 

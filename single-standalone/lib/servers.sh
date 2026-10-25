@@ -178,6 +178,7 @@ cmd_create() {
 
     _provision "$name" "$host" _create_files
     info "created $name (stopped). Start it with: mcctl start $name; players join at $host.$MCCTL_DOMAIN"
+    dns_hint "$host.$MCCTL_DOMAIN"
 }
 
 # _create_files NAME HOST: the files of a create (the WRITE_FN of _provision). It reads the flags that cmd_create parsed (type, version,
@@ -437,6 +438,7 @@ cmd_delete() {
     local -a keep=()
     _need_name "$name" || exit "$EX_USAGE"
     cf_ready
+    dns_on || info "DNS is off: no DNS record is touched. A record made while DNS was on stays in Cloudflare until you remove it there"
     dir=$MCCTL_ROOT/servers/$name
     if ! server_exists "$name" && [[ ! -e $dir && ! -L $dir ]]; then
         _delete_dns "$name" || die "the DNS record of $name could not be deleted (see above): run 'mcctl delete $name' again once Cloudflare answers"

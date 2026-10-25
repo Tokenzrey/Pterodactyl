@@ -10,9 +10,10 @@ Settings live in `config/mcctl.env` (copy `config/mcctl.env.example`; the copy i
 
 | Key | Default | Meaning |
 |---|---|---|
-| `MCCTL_DOMAIN` | none | Servers become `<name>.MCCTL_DOMAIN`. A lower-case host name with at least one dot, no scheme, no path. |
-| `MCCTL_PUBLIC_IPV4` | none | Public IPv4 address the DNS records point at. |
-| `MCCTL_CF_ZONE_ID` | none | Cloudflare Zone ID of the zone that holds `MCCTL_DOMAIN` (letters and digits only). |
+| `MCCTL_DNS` | `on` | `on`: one DNS record per server in Cloudflare. `off`: local play, no Cloudflare, no token, no zone (see [Local play](#local-play-mcctl_dnsoff)). |
+| `MCCTL_DOMAIN` | none (`mc.local` when `MCCTL_DNS=off`) | Servers become `<name>.MCCTL_DOMAIN`. A lower-case host name with at least one dot, no scheme, no path. |
+| `MCCTL_PUBLIC_IPV4` | none | Public IPv4 address the DNS records point at. Needed with `MCCTL_DNS=on` only. |
+| `MCCTL_CF_ZONE_ID` | none | Cloudflare Zone ID of the zone that holds `MCCTL_DOMAIN` (letters and digits only). Needed with `MCCTL_DNS=on` only. |
 | `MCCTL_GAME_SUBNET` | `172.30.0.0/24` | Private IPv4 network of the game containers, `/16` to `/29`, no host bits set. |
 | `MCCTL_ROUTER_IP` | `172.30.0.2` | Fixed address of mc-router inside that network: not the network, first (gateway) or broadcast address. |
 | `MCCTL_DOCKER_SOCKET` | `/var/run/docker.sock` | The Docker socket whose group mc-router is given (`group_add`), so that it can reach the API as a non-root user. Change only for a non-default socket. |
@@ -33,13 +34,15 @@ Rules:
 - A key a command needs but that is empty stops that command with exit 3 and a message naming every missing key.
 - Credentials are never settings. The Cloudflare API token is the file `secrets/cloudflare_token` (mode 600; see
   [Cloudflare DNS](#cloudflare-dns)).
-- `create` and `delete` need `MCCTL_DOMAIN`, `MCCTL_PUBLIC_IPV4` and `MCCTL_CF_ZONE_ID`.
+- With `MCCTL_DNS=on` (the default), `create`, `delete`, `clone`, `rename` and `import` need `MCCTL_DOMAIN`, `MCCTL_PUBLIC_IPV4` and `MCCTL_CF_ZONE_ID`. With `MCCTL_DNS=off` none of them is needed.
 - `MCCTL_PUBLIC_IPV4` is the address the world sees: the game-port DNS records are DNS-only (not proxied), so anyone who
   looks the name up learns it.
 
 ### Variables mcctl sets itself
 
 These are set by the `mcctl` script and its monitor code, not read from `config/mcctl.env`. `MCCTL_HOME` is the folder of `mcctl`, found from the script's own path; `MCCTL_VERSION` is what `mcctl --version` prints. Both are overwritten at each start, so setting them in the environment has no effect. `_MCCTL_UTF8_KEY` and `_MCCTL_UTF8_CACHE` are the monitor's cached check that the terminal is UTF-8; they are not for the operator.
+
+`MCCTL_ROUTER_BIND` is the address the router's game port is published on: `127.0.0.1` with `MCCTL_DNS=off`, `0.0.0.0` with `on`. `MCCTL_DOCKER_GID` is the group of the Docker socket, given to the router (`group_add`); both are set by `stack_dc` before each compose call.
 
 ## mcctl init
 
@@ -80,7 +83,31 @@ letters, digits and `-`, starting with a letter or digit. When Docker cannot be 
 stops with exit 1 and says so; it never treats that as "no such server". Each server also has one Cloudflare DNS record (below),
 and `mcctl delete` leaves an archive of its world and backups in `trash/` (not tracked by Git).
 
+## Local play (`MCCTL_DNS=off`)
+
+For playing on one machine, no domain and no Cloudflare account are needed:
+
+```
+# config/mcctl.env
+MCCTL_DNS=off                  # MCCTL_DOMAIN may stay empty: the names are <name>.mc.local
+```
+
+```
+./mcctl up
+./mcctl create s1 --type PAPER --accept-eula
+./mcctl start s1
+```
+
+- No DNS record is made, no Cloudflare call is made, and no token is read. `doctor` and the preflight say so.
+- The names only have to resolve on the machine the Minecraft client runs on. Add the line `127.0.0.1 s1.mc.local` to its hosts file
+  (Windows: `C:\Windows\System32\drivers\etc\hosts`, edited as Administrator). `create`, `clone`, `rename` and `import` print this line.
+- The game port is published on `127.0.0.1` only (`MCCTL_ROUTER_BIND`): other machines on the network cannot join. Change
+  `MCCTL_DNS` and run `./mcctl up` again so the router is made again with the new address.
+- `delete` removes no DNS record when DNS is off. A record made while DNS was on stays in Cloudflare until you remove it there.
+
 ## Cloudflare DNS
+
+With `MCCTL_DNS=on` (the default). With `MCCTL_DNS=off` this section does not apply: see [Local play](#local-play-mcctl_dnsoff).
 
 Players reach a server at `HOST.MCCTL_DOMAIN` (HOST is `--hostname`, by default the server name). `create` makes that name an A
 record in the Cloudflare zone `MCCTL_CF_ZONE_ID`, pointing at `MCCTL_PUBLIC_IPV4`, and `delete` removes it. Every record mcctl makes is:
@@ -105,7 +132,7 @@ never a command-line argument (so not in `ps` or shell history) and never printe
 is refused (exit 3) before any request. Every request is HTTPS only and gives up after 30 seconds; `curl` and `jq` must be installed
 (`mcctl doctor` checks both).
 
-`create` and `delete` need `MCCTL_DOMAIN`, `MCCTL_PUBLIC_IPV4`, `MCCTL_CF_ZONE_ID` and the token file; without any of them they stop with
+With `MCCTL_DNS=on`, `create` and `delete` need `MCCTL_DOMAIN`, `MCCTL_PUBLIC_IPV4`, `MCCTL_CF_ZONE_ID` and the token file; without any of them they stop with
 exit 3 before anything is asked or changed. To find a server's records, `delete` asks Cloudflare for the records whose comment is
 exactly `mcctl name=<server>` and whose name is a single label under `MCCTL_DOMAIN`, so it finds them even when the server's folder is gone.
 
@@ -145,7 +172,7 @@ was lost (a timeout) may still have made the record, so a failed request is foll
 name. A folder `servers/NAME` that exists while Docker has no such server is a leftover of an interrupted create or delete: `create`
 refuses (exit 4) and leaves it alone.
 
-Needs `MCCTL_DOMAIN`, `MCCTL_PUBLIC_IPV4`, `MCCTL_CF_ZONE_ID` and `secrets/cloudflare_token` (exit 3 without any of them). That
+With `MCCTL_DNS=on` needs `MCCTL_DOMAIN`, `MCCTL_PUBLIC_IPV4`, `MCCTL_CF_ZONE_ID` and `secrets/cloudflare_token` (exit 3 without any of them). With `MCCTL_DNS=off` it needs none of them. That
 `kill -s HUP mc-router` succeeds while the router stack is down is not yet checked on a real Docker host; if it does not, `create`
 fails at step 4 and takes everything back until `mcctl up` has run.
 

@@ -16,7 +16,8 @@ services:
     environment:
       IN_DOCKER: "true"
     ports:
-      - "25565:25565"
+      # MCCTL_ROUTER_BIND is set by stack_dc (lib/router.sh): 127.0.0.1 for local play (DNS off), 0.0.0.0 with DNS on
+      - "${MCCTL_ROUTER_BIND:?run through mcctl}:25565:25565"
     volumes:
       # ":ro" is a read-only MOUNT of the socket file. It does not make the Docker API read-only: whoever can talk to the
       # socket can still create containers. mc-router is trusted with that; nothing else in this file touches the socket.

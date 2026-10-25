@@ -105,7 +105,7 @@ stack_violations() {
     awk '
         function bad() { print FILENAME ":" FNR ": " $0 }
         /^[ \t]*#/ { next }
-        inports && /^[ \t]*-/ { if ($0 !~ /^[ \t]*-[ \t]*"25565:25565"[ \t]*(#.*)?$/ || ++n > 1) bad(); next }
+        inports && /^[ \t]*-/ { if ($0 !~ /^[ \t]*-[ \t]*"(\$\{MCCTL_ROUTER_BIND:\?[^}]*\}:)?25565:25565"[ \t]*(#.*)?$/ || ++n > 1) bad(); next }
         { inports = 0 }
         /^[ \t]*ports:/ { inports = 1; if ($0 !~ /^[ \t]*ports:[ \t]*(#.*)?$/) bad() }
         /^[ \t]*(privileged|pid|userns_mode|devices):/ { bad() }
