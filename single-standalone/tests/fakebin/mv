@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Fake `mv` for tests: the real mv (found with `command -p`), except that a move whose destination (its last argument) is exactly
+# $FAIL_MV fails with status 1 and moves nothing. That is how a test makes one write_atomic fail. With FAIL_MV_NTH=N only the Nth
+# such move fails (counted in $FAKE_STATE/mv.count; the test removes that file between cases), so a case can let the first write
+# through and fail the second, or fail one write and let the undo write succeed. Without FAIL_MV it is the real mv and writes
+# nothing else, not even to calls.log.
+if [[ -n ${FAIL_MV:-} && ${!#} == "$FAIL_MV" ]]; then
+    c=${FAKE_STATE:?FAKE_STATE not set}/mv.count
+    n=$(($(cat "$c" 2>/dev/null || echo 0) + 1)); echo "$n" >"$c"
+    if ((${FAIL_MV_NTH:-0} == 0 || n == FAIL_MV_NTH)); then
+        echo "fake mv: FAIL_MV: not moving anything onto $FAIL_MV" >&2
+        exit 1
+    fi
+fi
+command -p mv "$@"

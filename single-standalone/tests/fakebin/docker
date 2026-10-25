@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Strict fake `docker` for tests. It never talks to a daemon.
+#  - Every call is appended to $FAKE_STATE/calls.log as one line, "docker ARGV...", newlines inside an argument shown as \n.
+#    Flow tests assert this ordered log, not only exit codes.
+#  - A subcommand not listed below is logged as "UNKNOWN docker ARGV...", reported on stderr, and exits 97. Teach the fake
+#    a new subcommand by adding it to the lists; code under test cannot lean on behaviour nobody modelled.
+#  - Output and exit status are replayed from files in $FAKE_STATE. The words of the call (options and the values of compose's
+#    global options left out) are joined with dots, longest match first, up to four words:
+#        docker compose -p x ps -a   ->  docker.compose.ps   (stdout)   docker.compose.ps.rc   (exit status, default 0)
+#    A known call with no such file prints nothing and exits 0.
+#  - FAIL_AT=n (E7): the n-th mutating call of the run (compose create, up, rm, stop, kill, and docker run unless its command is one of
+#    ls cat stat test readlink find du wc head), counted together with fakebin/curl in $FAKE_STATE/mutations, exits 1. A failing create
+#    or up has made its containers first; a failing rm, stop, kill or run changed nothing (a failing run reads no stdin either).
+#  - docker.run.<command>.sleep (seconds): a run waits that long before it answers (a test that interrupts a running tar).
+#  - Opt-in state ($FAKE_STATE/docker.stateful exists): `compose -p mcctl-NAME -f .../servers/NAME/compose.yaml create|up` writes the
+#    answers of `docker ps ... label=mcctl.name=NAME` and `... label=mcctl.hostname=HOST` (HOST read from the compose file), as
+#    fake_server does by hand, and `rm` takes them away again, as fake_gone does.
+#  - Opt-in (tests/t_versions.sh): $FAKE_STATE/docker.<key>.seq holds one answer per line, given in order to successive calls with
+#    that key (the file is then rewritten with what is left); docker.compose.create.yml and docker.compose.up.yml hold the compose
+#    file the last create or up was given, and docker.compose.recreate.N.yml the file of the Nth create or up of the run.
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S"
+
+line=docker
+for a in "$@"; do line+=" ${a//$'\n'/\\n}"; done
+
+words=() skip="" proj="" file=""
+for a in "$@"; do
+    if [[ -n $skip ]]; then
+        case $skip in -p|--project-name) proj=$a ;; -f|--file) file=$a ;; esac
+        skip=""; continue
+    fi
+    case $a in
+        -p|-f|--project-directory|--env-file|--profile|--project-name|--file)
+            # these take a value only as compose global options (before its subcommand); `logs -f` is a plain flag
+            [[ ${words[0]:-} == compose && ${#words[@]} -eq 1 ]] && skip=$a ;;
+        -*) ;;
+        *) words+=("$a") ;;
+    esac
+done
+
+known=0
+case ${words[0]:-} in
+    version|info|ps|inspect|exec|logs|stats|cp|run|pull|network|volume|image|events) known=1 ;;
+    compose)
+        case ${words[1]:-} in
+            version|up|create|start|stop|restart|rm|kill|down|ps|logs|config|pull|exec|cp) known=1 ;;
+        esac ;;
+esac
+
+if ((!known)); then
+    printf 'UNKNOWN %s\n' "$line" >>"$S/calls.log"
+    echo "fake docker: subcommand not modelled: $*" >&2
+    exit 97
+fi
+printf '%s\n' "$line" >>"$S/calls.log"
+
+# docker run: its options (with their values), the image, then the command. Replays docker.run.<command> and
+# docker.run.<command>.rc, <command> being the first word after the image; with -i, stdin is kept in run.stdin.<n> (n = 1, 2, ...).
+if [[ ${1-} == run ]]; then
+    shift; keep=0
+    while (($#)); do
+        case $1 in
+            -i|--interactive) keep=1 ;;
+            --network|--user|-v|--volume|-w|--workdir|--cap-drop|--security-opt|--tmpfs|--pids-limit|--memory) shift ;;
+            -*) ;;
+            *) break ;;
+        esac
+        shift
+    done
+    # a run is mutating unless its command only reads (the word after the image): it takes a FAIL_AT slot like compose create, and
+    # a failing one has changed nothing (it is not kept on stdin)
+    case ${2-} in
+        ls|cat|stat|test|readlink|find|du|wc|head) ;;
+        *)
+            if [[ -n ${FAIL_AT:-} ]]; then
+                m=0; [[ -f $S/mutations ]] && m=$(<"$S/mutations")
+                m=$((m + 1)); echo "$m" >"$S/mutations"
+                if ((m == FAIL_AT)); then echo "fake docker: injected failure (FAIL_AT=$FAIL_AT): $line" >&2; exit 1; fi
+            fi ;;
+    esac
+    if ((keep)); then n=1; while [[ -e $S/run.stdin.$n ]]; do n=$((n + 1)); done; cat >"$S/run.stdin.$n"; fi
+    key=docker.run; [[ -n ${2-} ]] && key+=.${2//[^A-Za-z0-9_-]/_}
+    [[ -f $S/$key.sleep ]] && sleep "$(<"$S/$key.sleep")"   # opt-in (tests/t_worlds.sh): a run that takes N seconds
+    [[ -f $S/$key ]] && cat "$S/$key"
+    rc=0; [[ -f $S/$key.rc ]] && rc=$(<"$S/$key.rc"); [[ $rc =~ ^[0-9]+$ ]] || rc=1
+    exit "$rc"
+fi
+
+fail=0 verb=""
+[[ ${words[0]:-} == compose ]] && verb=${words[1]:-}
+case $verb in
+    create|up|rm|stop|kill)
+        # opt-in (tests/t_versions.sh): the compose file a create or up was given, copied as it was at that call: the last one as
+        # docker.compose.VERB.yml, and each one in turn as docker.compose.recreate.N.yml (N counts the creates and ups of the run)
+        if [[ $verb == create || $verb == up ]] && [[ -n $file && -f $file ]]; then
+            n=0; [[ -f $S/docker.recreates ]] && n=$(<"$S/docker.recreates")
+            n=$((n + 1)); echo "$n" >"$S/docker.recreates"
+            cp -- "$file" "$S/docker.compose.$verb.yml"; cp -- "$file" "$S/docker.compose.recreate.$n.yml"
+        fi
+        if [[ -n ${FAIL_AT:-} ]]; then
+            m=0; [[ -f $S/mutations ]] && m=$(<"$S/mutations")
+            m=$((m + 1)); echo "$m" >"$S/mutations"
+            ((m == FAIL_AT)) && fail=1
+        fi
+        if [[ -e $S/docker.stateful && $proj == mcctl-* && $file == */servers/"${proj#mcctl-}"/compose.yaml ]]; then
+            n=${proj#mcctl-}
+            if [[ $verb == create || $verb == up ]]; then
+                echo "id-$n" >"$S/docker.ps.label_mcctl_name_$n"
+                h=$(grep -o 'mcctl\.hostname=[a-z0-9-]*' "$file" 2>/dev/null | head -n 1)
+                [[ -z ${h#*=} ]] || echo "$n" >"$S/docker.ps.label_mcctl_hostname_${h#*=}"
+            elif [[ $verb == rm ]] && ((!fail)); then
+                rm -f "$S/docker.ps.label_mcctl_name_$n"
+                for h in "$S"/docker.ps.label_mcctl_hostname_*; do
+                    [[ -f $h && $(<"$h") == "$n" ]] && rm -f "$h"
+                done
+            fi
+        fi
+        if ((fail)); then echo "fake docker: injected failure (FAIL_AT=$FAIL_AT): $line" >&2; exit 1; fi ;;
+esac
+
+for ((i = ${#words[@]} > 4 ? 4 : ${#words[@]}; i > 0; i--)); do
+    key=docker
+    for ((j = 0; j < i; j++)); do key+=".${words[j]//[^A-Za-z0-9_-]/_}"; done
+    if [[ -e $S/$key || -e $S/$key.rc || -s $S/$key.seq ]]; then
+        if [[ -s $S/$key.seq ]]; then
+            # opt-in (tests/t_versions.sh): one line per call, answered in order; $key answers once the file is used up
+            mapfile -t seq <"$S/$key.seq"
+            printf '%s\n' "${seq[0]}"
+            if ((${#seq[@]} > 1)); then printf '%s\n' "${seq[@]:1}" >"$S/$key.seq"; else rm -f -- "$S/$key.seq"; fi
+            exit 0
+        fi
+        [[ -f $S/$key ]] && cat "$S/$key"
+        rc=0
+        [[ -f $S/$key.rc ]] && rc=$(<"$S/$key.rc")
+        [[ $rc =~ ^[0-9]+$ ]] || rc=1
+        exit "$rc"
+    fi
+done
+exit 0

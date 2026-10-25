@@ -1,0 +1,109 @@
+# The mcctl router stack (compose project mcctl-stack), started by `mcctl up`. Do not run `docker compose` on it directly: the
+# MCCTL_* variables come from mcctl (load_config exports them).
+#
+# mc-router    The ONE public port. It reads the "mc-router.host" label of every game container through the Docker socket and
+#              forwards a connection to the container whose host name the player typed. Game containers publish nothing.
+# egress-guard Keeps game containers away from the host, the LAN and the cloud metadata service. It installs the rules below in
+#              the Docker host's network namespace and is healthy only once they exist, so `mcctl up` (docker compose --wait)
+#              fails instead of leaving the game network unguarded. mc-router does not start before it is healthy.
+#
+# The game network mcctl_game is created by `mcctl up` with MCCTL_GAME_SUBNET (it must exist before compose starts).
+services:
+  mc-router:
+    image: itzg/mc-router
+    container_name: mcctl-router
+    restart: unless-stopped
+    environment:
+      IN_DOCKER: "true"
+    ports:
+      - "25565:25565"
+    volumes:
+      # ":ro" is a read-only MOUNT of the socket file. It does not make the Docker API read-only: whoever can talk to the
+      # socket can still create containers. mc-router is trusted with that; nothing else in this file touches the socket.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      mcctl_game:
+        ipv4_address: ${MCCTL_ROUTER_IP:?run through mcctl}
+    depends_on:
+      egress-guard:
+        condition: service_healthy
+    cap_drop: [ALL]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 128
+
+  egress-guard:
+    image: docker.io/library/alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc   # alpine:3.20
+    container_name: mcctl-egress-guard
+    restart: unless-stopped
+    network_mode: host                        # the Docker host's own network namespace, where the daemon's iptables rules live
+    cap_add: [NET_ADMIN]                      # the only added capability in this file
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      GAME_SUBNET: ${MCCTL_GAME_SUBNET:?run through mcctl}
+      ROUTER_IP: ${MCCTL_ROUTER_IP:?run through mcctl}
+      PRIVATE_RANGES: "10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10"
+      CONN_LIMIT: ${MCCTL_CONN_LIMIT:?run through mcctl}
+      RATE: ${MCCTL_RATE:?run through mcctl}
+    # DOCKER-USER sees the traffic game containers send through the host (LAN, other networks, the internet); the first rule of
+    # it jumps into our own chain MCCTL-EGRESS, built here in the order it is read. A packet takes the FIRST rule that matches:
+    #   1. replies and related traffic of connections that are allowed (a player on the LAN, whose reply is dropped otherwise)
+    #   2. router -> game containers: without this the drops below also cut mc-router off from the servers it routes to
+    #      (the game network lies inside one of the private ranges)
+    #   3. everything else from the game network to a private range is dropped (LAN, other Docker networks, 169.254.169.254)
+    # There is deliberately NO rule that lets game containers reach each other (game network -> game network): a game server must not
+    # be able to open connections to another one. The backup sidecar needs no such path, it shares its server's network namespace.
+    # Traffic from game containers to the host itself does not pass through DOCKER-USER but through INPUT: new connections are
+    # dropped there. The chain is flushed and refilled at every start, so a changed subnet or router address leaves no stale rule.
+    # ponytail: the flush leaves a window of milliseconds at a restart of this container; iptables-restore builds it atomically.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        apk add --no-cache iptables >/dev/null
+        ipt() { iptables -w 5 "$$@"; }
+        until ipt -S DOCKER-USER >/dev/null 2>&1; do sleep 2; done
+        ipt -N MCCTL-EGRESS 2>/dev/null || ipt -F MCCTL-EGRESS
+        ipt -A MCCTL-EGRESS -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+        ipt -A MCCTL-EGRESS -s "$$ROUTER_IP" -d "$$GAME_SUBNET" -j RETURN
+        for d in $$PRIVATE_RANGES; do
+          ipt -A MCCTL-EGRESS -s "$$GAME_SUBNET" -d "$$d" -j DROP
+        done
+        ipt -C DOCKER-USER -j MCCTL-EGRESS 2>/dev/null || ipt -I DOCKER-USER 1 -j MCCTL-EGRESS
+        ipt -N MCCTL-INGRESS 2>/dev/null || ipt -F MCCTL-INGRESS
+        ipt -A MCCTL-INGRESS -s "$$GAME_SUBNET" -j RETURN
+        ipt -A MCCTL-INGRESS -d "$$ROUTER_IP" -p tcp --dport 25565 -m conntrack --ctstate NEW \
+            -m connlimit --connlimit-above "$$CONN_LIMIT" --connlimit-mask 32 -j DROP
+        ipt -A MCCTL-INGRESS -d "$$ROUTER_IP" -p tcp --dport 25565 -m conntrack --ctstate NEW \
+            -m hashlimit --hashlimit-above "$$RATE" --hashlimit-mode srcip --hashlimit-name mcctl-new -j DROP
+        ipt -C DOCKER-USER -j MCCTL-INGRESS 2>/dev/null || ipt -I DOCKER-USER 2 -j MCCTL-INGRESS
+        ipt -C INPUT -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP 2>/dev/null \
+          || ipt -I INPUT 1 -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP
+        exec sleep infinity
+    healthcheck:
+      # healthy only when every rule above exists (the jump into the chain, the two RETURNs, each DROP, and the INPUT drop)
+      test:
+        - CMD-SHELL
+        - |
+          ipt() { iptables -w 5 "$$@"; }
+          ipt -C DOCKER-USER -j MCCTL-EGRESS &&
+          ipt -C MCCTL-EGRESS -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN &&
+          ipt -C MCCTL-EGRESS -s "$$ROUTER_IP" -d "$$GAME_SUBNET" -j RETURN &&
+          for d in $$PRIVATE_RANGES; do ipt -C MCCTL-EGRESS -s "$$GAME_SUBNET" -d "$$d" -j DROP || exit 1; done &&
+          ipt -C DOCKER-USER -j MCCTL-INGRESS &&
+          ipt -C MCCTL-INGRESS -s "$$GAME_SUBNET" -j RETURN &&
+          ipt -C MCCTL-INGRESS -d "$$ROUTER_IP" -p tcp --dport 25565 -m conntrack --ctstate NEW -m connlimit --connlimit-above "$$CONN_LIMIT" --connlimit-mask 32 -j DROP &&
+          ipt -C MCCTL-INGRESS -d "$$ROUTER_IP" -p tcp --dport 25565 -m conntrack --ctstate NEW -m hashlimit --hashlimit-above "$$RATE" --hashlimit-mode srcip --hashlimit-name mcctl-new -j DROP &&
+          ipt -C INPUT -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    mem_limit: 64m
+    pids_limit: 64
+
+networks:
+  mcctl_game:
+    external: true

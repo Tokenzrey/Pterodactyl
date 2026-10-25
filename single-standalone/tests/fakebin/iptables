@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Strict, stateful fake `iptables` for tests: it changes no firewall. The rules live in two files under $FAKE_STATE:
+#   iptables.chains   one chain name per line      iptables.rules   "CHAIN<TAB>rule", in the order iptables would hold them
+# Every call is appended to $FAKE_STATE/calls.log as "iptables ARGV". Modelled: [-w [N]] followed by
+#   -S CHAIN | -N CHAIN | -F CHAIN | -C CHAIN RULE... | -A CHAIN RULE... | -I CHAIN [POS] RULE...
+# with the real exit statuses (-C on a missing rule or chain: 1, -N on a chain that exists: 1, -S on a missing chain: 1). The rule
+# is kept as the words that were given, so -C finds a rule only when it is spelled as it was added. Anything else is logged as
+# "UNKNOWN iptables ARGV" and exits 97.
+# A new state has the built-in chains and DOCKER-USER with Docker's own "-j RETURN" rule; the file iptables.no-docker, when it
+# exists before the first call, leaves DOCKER-USER out (Docker not started yet). iptables.fail holds a string: a call whose
+# arguments contain it fails with exit 1 and changes nothing.
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S"
+CH=$S/iptables.chains RL=$S/iptables.rules
+line=iptables
+for a in "$@"; do line+=" ${a//$'\n'/\\n}"; done
+
+unknown() {
+    printf 'UNKNOWN %s\n' "$line" >>"$S/calls.log"
+    echo "fake iptables: call not modelled: $*" >&2
+    exit 97
+}
+
+# -w [N] only waits for the lock
+args=() i=0
+all=("$@")
+while ((i < ${#all[@]})); do
+    if [[ ${all[i]} == -w ]]; then
+        i=$((i + 1))
+        [[ ${all[i]:-} =~ ^[0-9]+$ ]] && i=$((i + 1))
+        continue
+    fi
+    args+=("${all[i]}"); i=$((i + 1))
+done
+set -- "${args[@]}"
+op=${1:-} chain=${2:-}
+case $op in
+    -S) ;;
+    -N|-F|-C|-A|-I) [[ -n $chain ]] || unknown "$@" ;;
+    *) unknown "$@" ;;
+esac
+if [[ -n $chain ]]; then shift 2; else shift; fi
+printf '%s\n' "$line" >>"$S/calls.log"
+
+if [[ ! -f $CH ]]; then
+    printf '%s\n' INPUT FORWARD OUTPUT >"$CH"
+    : >"$RL"
+    if [[ ! -e $S/iptables.no-docker ]]; then
+        echo DOCKER-USER >>"$CH"
+        printf 'DOCKER-USER\t-j RETURN\n' >>"$RL"
+    fi
+fi
+if [[ -f $S/iptables.fail && $line == *"$(<"$S/iptables.fail")"* ]]; then
+    echo "iptables: injected failure" >&2; exit 1
+fi
+
+have_chain() { grep -qxF -- "$1" "$CH"; }
+R=()
+load() { local c r; R=(); while IFS=$'\t' read -r c r; do [[ $c == "$chain" ]] && R+=("$r"); done <"$RL"; }
+save() {
+    local c r tmp=$RL.new
+    { while IFS=$'\t' read -r c r; do [[ $c == "$chain" ]] || printf '%s\t%s\n' "$c" "$r"; done <"$RL"
+      for r in "${R[@]}"; do printf '%s\t%s\n' "$chain" "$r"; done; } >"$tmp"
+    mv "$tmp" "$RL"
+}
+nochain() { echo "iptables: No chain/target/match by that name." >&2; exit 1; }
+
+spec="$*"
+case $op in
+    -N) have_chain "$chain" && { echo "iptables: Chain already exists." >&2; exit 1; }
+        echo "$chain" >>"$CH" ;;
+    -S) if [[ -z $chain ]]; then
+            local c cc r
+            while IFS= read -r c; do
+                case $c in INPUT|FORWARD|OUTPUT) echo "-P $c ACCEPT" ;; *) echo "-N $c" ;; esac
+                while IFS=$'\t' read -r cc r; do [[ $cc == "$c" ]] && echo "-A $c $r"; done <"$RL"
+            done <"$CH"
+        else
+            have_chain "$chain" || nochain
+            load
+            case $chain in INPUT|FORWARD|OUTPUT) echo "-P $chain ACCEPT" ;; *) echo "-N $chain" ;; esac
+            for r in "${R[@]}"; do echo "-A $chain $r"; done
+        fi ;;
+    -F) have_chain "$chain" || nochain
+        R=(); save ;;
+    -C) have_chain "$chain" || nochain
+        load
+        for r in "${R[@]}"; do [[ $r == "$spec" ]] && exit 0; done
+        echo "iptables: Bad rule (does a matching rule exist in that chain?)." >&2; exit 1 ;;
+    -A) have_chain "$chain" || nochain
+        load; R+=("$spec"); save ;;
+    -I) have_chain "$chain" || nochain
+        pos=1
+        if [[ ${1:-} =~ ^[0-9]+$ ]]; then pos=$1; shift; spec="$*"; fi
+        load
+        ((pos >= 1 && pos <= ${#R[@]} + 1)) || { echo "iptables: Index of insertion too big." >&2; exit 1; }
+        R=("${R[@]:0:pos-1}" "$spec" "${R[@]:pos-1}"); save ;;
+esac
+exit 0

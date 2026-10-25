@@ -1,0 +1,26 @@
+# The mcctl SFTP stack (compose project mcctl-sftp). This is the TEMPLATE: lib/sftp.sh (sftp_render) fills the three
+# placeholders below and writes the result to sftp.compose.yml in MCCTL_ROOT. That generated file is rewritten whenever an SFTP user
+# or key is added or removed; never edit it by hand, and do not run docker compose on the template.
+#
+# One shared container (atmoz/sftp), one chrooted user per server, key-only login (the password field of every user is empty).
+# It lives in its own project so that the router stack keeps exactly one published port (25565) and SFTP can be recreated without
+# touching the router.
+#
+# The published port is decided when the file is generated: 127.0.0.1 (reach it through an SSH tunnel) unless MCCTL_SFTP_PUBLIC=1,
+# then 0.0.0.0. Every user gets two mounts: the data folder of its server, read-write, at /home/NAME/NAME (the folder it sees after
+# login), and, once a key was added, the key file, read-only, where atmoz/sftp looks for public keys (/home/NAME/.ssh/keys/).
+services:
+  sftp:
+    image: atmoz/sftp
+    container_name: mcctl-sftp
+    restart: unless-stopped
+    ports:
+      - "{{SFTP_BIND}}:2222:22"
+    volumes:
+{{USERS_MOUNT}}
+{{SERVER_MOUNTS}}
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE, SYS_CHROOT]   # sshd needs SYS_CHROOT for the chroot of every user
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 128

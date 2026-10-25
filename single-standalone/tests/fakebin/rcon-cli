@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Strict fake `rcon-cli` for tests: no server to talk to. Every call is logged as "UNKNOWN rcon-cli ARGV..." in
+# $FAKE_STATE/calls.log and refused with exit 97. A task that needs it teaches this file its calls (log them as
+# "rcon-cli ARGV...", replay the answer from $FAKE_STATE/rcon-cli.* files, as fakebin/docker does).
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S"
+line=rcon-cli
+for a in "$@"; do line+=" ${a//$'\n'/\\n}"; done
+printf 'UNKNOWN %s\n' "$line" >>"$S/calls.log"
+echo "fake rcon-cli: call not modelled: $*" >&2
+exit 97

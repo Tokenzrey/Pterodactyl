@@ -1,0 +1,8 @@
+# Runtime state created by mcctl when MCCTL_ROOT is this folder: one folder per server, secrets (never committed), and the
+# archives `mcctl delete` writes of a deleted server's world and backups
+/servers/
+/secrets/
+/trash/
+*.tmp
+*.bak
+/config/mcctl.env

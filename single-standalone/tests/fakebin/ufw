@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Strict, stateful fake `ufw` for tests: it changes no firewall.
+# State in $FAKE_STATE/ufw.*:
+#   ufw.active      exists when ufw is enabled
+#   ufw.rules       one rule per line ("PORT/tcp ALLOW") for ufw_allows_port
+#   ufw.fail        a string: a call whose arguments contain it fails with exit 1
+# Every call is appended to $FAKE_STATE/calls.log as "ufw ARGV". Modelled:
+#   status | status verbose | default deny incoming | default allow outgoing |
+#   --force enable | --force disable | allow PORT/tcp comment MSG
+# Anything else is logged as "UNKNOWN ufw ARGV" and exits 97.
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S"
+line=ufw
+for a in "$@"; do line+=" ${a//$'\n'/\\n}"; done
+
+unknown() {
+    printf 'UNKNOWN %s\n' "$line" >>"$S/calls.log"
+    echo "fake ufw: call not modelled: $*" >&2
+    exit 97
+}
+
+op=""
+case ${1:-} in
+    status) op=status ;;
+    --force) case ${2:-} in enable) op=enable ;; disable) op=disable ;; *) unknown "$@" ;; esac ;;
+    default) case ${2:-} in deny) op=default-deny ;; allow) op=default-allow ;; *) unknown "$@" ;; esac ;;
+    allow) op=allow ;;
+    *) unknown "$@" ;;
+esac
+
+if [[ -f $S/ufw.fail && $line == *"$(<"$S/ufw.fail")"* ]]; then
+    printf '%s\n' "$line" >>"$S/calls.log"
+    echo "ufw: injected failure" >&2; exit 1
+fi
+
+printf '%s\n' "$line" >>"$S/calls.log"
+
+case $op in
+    status)
+        if [[ -e $S/ufw.active ]]; then
+            echo "Status: active"
+            [[ -e $S/ufw.hide-rules ]] || { [[ -f $S/ufw.rules ]] && cat "$S/ufw.rules"; }
+        else
+            echo "Status: inactive"
+        fi
+        ;;
+    enable)
+        touch "$S/ufw.active"
+        ;;
+    disable)
+        rm -f "$S/ufw.active"
+        ;;
+    default-deny) : ;;
+    default-allow) : ;;
+    allow)
+        shift
+        r=""
+        while (($#)); do
+            case $1 in
+                comment) shift; break ;;
+                *) [[ -z $r ]] && r=$1 ;;
+            esac
+            shift
+        done
+        [[ -n $r ]] && printf '%s ALLOW\n' "$r" >>"$S/ufw.rules"
+        ;;
+esac
+exit 0

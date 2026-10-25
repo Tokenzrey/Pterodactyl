@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Strict, stateful fake `curl` for tests: there is no network. It models the Cloudflare DNS calls of lib/cloudflare.sh and nothing
+# else:
+#     curl -q -sS --proto =https --max-time N --config - -X GET|POST|DELETE -H 'Content-Type: application/json' [--data JSON] URL
+# -q (read no ~/.curlrc) must be the first argument, as curl requires.
+#     URL  https://api.cloudflare.com/client/v4/zones/ZONE/dns_records?FILTER   GET; FILTER: name=, comment.exact=, type=, joined by &
+#          https://api.cloudflare.com/client/v4/zones/ZONE/dns_records          POST, with --data
+#          https://api.cloudflare.com/client/v4/zones/ZONE/dns_records/ID       DELETE
+#          https://api.cloudflare.com/client/v4/zones/ZONE/dns_records/ID       PATCH, with --data {"comment": "..."} only
+# stdin (--config -) must be exactly one line, header = "Authorization: Bearer TOKEN"; the token it received is kept in
+# $FAKE_STATE/curl.bearer, so a test can compare it with the token file. Every call is appended to $FAKE_STATE/calls.log as one line,
+# "curl ARGV...". Any other option, header, URL or config line (an Authorization header or a --user in the arguments included) is
+# logged as "UNKNOWN curl ARGV..." and exits 97.
+# State: $FAKE_STATE/curl.records.json, a JSON array of records {id, type, name, content, proxied, ttl, comment} (missing = none).
+# Answers are Cloudflare's: {"success": true|false, "errors": [...], "result": ...}. Like Cloudflare, a POST for a name that already
+# has an A, AAAA or CNAME record is refused (81057), and so is a DELETE of an id that does not exist (81044).
+# Knobs: curl.METHOD.rc: curl exits with that status and applies nothing (no network); curl.METHOD.body: that is the answer (exit 0)
+# and nothing is applied (an API refusal). FAIL_AT=n (E7): the n-th mutating call (POST, DELETE) of the run, counted together with
+# fakebin/docker in $FAKE_STATE/mutations, times out (exit 28): a POST or PATCH has been applied by then (only the answer was lost), a
+# DELETE has not.
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S"
+line=curl
+for a in "$@"; do line+=" ${a//$'\n'/\\n}"; done
+unknown() {
+    printf 'UNKNOWN %s\n' "$line" >>"$S/calls.log"
+    echo "fake curl: call not modelled: $line" >&2
+    exit 97
+}
+
+method="" url="" data="" havedata=0 cfg=0
+[[ ${1-} == -q ]] || unknown
+shift
+while (($#)); do
+    case $1 in
+        -sS) shift; continue ;;
+        https://api.cloudflare.com/client/v4/zones/*) [[ -z $url ]] || unknown; url=$1; shift; continue ;;
+        --proto|--max-time|--config|-X|-H|--data) (($# >= 2)) || unknown ;;
+        *) unknown ;;
+    esac
+    case $1 in
+        --proto)    [[ $2 == =https ]] || unknown ;;
+        --max-time) [[ $2 =~ ^[0-9]+$ ]] || unknown ;;
+        --config)   [[ $2 == - ]] || unknown; cfg=1 ;;
+        -X)         method=$2 ;;
+        -H)         [[ $2 == 'Content-Type: application/json' ]] || unknown ;;
+        --data)     data=$2; havedata=1 ;;
+    esac
+    shift 2
+done
+
+rest=${url#https://api.cloudflare.com/client/v4/zones/}
+zone=${rest%%/*} rest=${rest#*/} query="" id=""
+[[ -n $url && $zone =~ ^[A-Za-z0-9]+$ ]] || unknown
+case $method in
+    GET)    [[ $rest == dns_records || $rest == dns_records\?* ]] && ((!havedata)) || unknown
+            query=${rest#dns_records}; query=${query#\?} ;;
+    POST)   [[ $rest == dns_records ]] && ((havedata)) || unknown ;;
+    DELETE) [[ $rest =~ ^dns_records/([A-Za-z0-9]+)$ ]] && ((!havedata)) || unknown; id=${BASH_REMATCH[1]} ;;
+    PATCH)  [[ $rest =~ ^dns_records/([A-Za-z0-9]+)$ ]] && ((havedata)) || unknown; id=${BASH_REMATCH[1]} ;;
+    *)      unknown ;;
+esac
+fname="" fcomment="" ftype=""
+if [[ -n $query ]]; then
+    IFS='&' read -ra pairs <<<"$query"
+    for p in "${pairs[@]}"; do
+        [[ $p == *=* ]] || unknown
+        v=${p#*=}
+        [[ $v =~ ^([A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})*$ ]] || unknown
+        v=$(printf '%b' "${v//%/\\x}")   # URL-decode
+        case ${p%%=*} in
+            name) fname=$v ;;
+            comment.exact) fcomment=$v ;;
+            type) ftype=$v ;;
+            *) unknown ;;
+        esac
+    done
+fi
+((cfg)) || unknown
+tok="" n=0 re='^header = "Authorization: Bearer ([^"]+)"$'
+while IFS= read -r l || [[ -n $l ]]; do
+    n=$((n + 1))
+    [[ $n -eq 1 && $l =~ $re ]] || unknown
+    tok=${BASH_REMATCH[1]}
+done
+[[ -n $tok ]] || unknown
+printf '%s\n' "$line" >>"$S/calls.log"
+printf '%s\n' "$tok" >"$S/curl.bearer"
+
+if [[ -f $S/curl.$method.rc ]]; then
+    rc=$(<"$S/curl.$method.rc"); [[ $rc =~ ^[0-9]+$ ]] || rc=7
+    echo "curl: ($rc) Failed to connect to api.cloudflare.com port 443 (fake)" >&2
+    exit "$rc"
+fi
+if [[ -f $S/curl.$method.body ]]; then cat "$S/curl.$method.body"; exit 0; fi
+
+fail=0
+if [[ $method != GET && -n ${FAIL_AT:-} ]]; then
+    m=0; [[ -f $S/mutations ]] && m=$(<"$S/mutations")
+    m=$((m + 1)); echo "$m" >"$S/mutations"
+    ((m == FAIL_AT)) && fail=1
+fi
+timed_out() { echo "curl: (28) Operation timed out after 30000 milliseconds with 0 bytes received (fake, FAIL_AT=$FAIL_AT)" >&2; exit 28; }
+refuse() { printf '{"success":false,"errors":[{"code":%s,"message":"%s"}],"messages":[],"result":null}\n' "$1" "$2"; exit 0; }
+
+DB=$S/curl.records.json
+[[ -f $DB ]] || echo '[]' >"$DB"
+save() { jq -c "$@" "$DB" >"$DB.new" && mv -f "$DB.new" "$DB"; }
+case $method in
+    GET)
+        jq -c --arg n "$fname" --arg c "$fcomment" --arg t "$ftype" '
+            [.[] | select(($n == "" or .name == $n) and ($t == "" or .type == $t)
+                          and ($c == "" or ((.comment // "") | ascii_downcase) == ($c | ascii_downcase)))]
+            | {success: true, errors: [], messages: [], result: ., result_info: {page: 1, per_page: 100, count: length, total_count: length}}' "$DB" ;;
+    POST)
+        rec=$(jq -ce 'select(type == "object" and (.type | type) == "string" and (.name | type) == "string" and (.content | type) == "string")' <<<"$data" 2>/dev/null) \
+            || refuse 9000 "invalid request body"
+        jq -e --argjson r "$rec" 'any(.[]; .name == $r.name and (.type == "A" or .type == "AAAA" or .type == "CNAME"))' "$DB" >/dev/null \
+            && refuse 81057 "Record already exists."
+        k=0; [[ -f $S/curl.ids ]] && k=$(<"$S/curl.ids")
+        k=$((k + 1)); echo "$k" >"$S/curl.ids"
+        save --argjson r "$rec" --arg id "rec$k" '. + [{id: $id, type: $r.type, name: $r.name, content: $r.content,
+            proxied: ($r.proxied // false), ttl: ($r.ttl // 1), comment: ($r.comment // null)}]'
+        ((fail)) && timed_out
+        jq -c --arg id "rec$k" '{success: true, errors: [], messages: [], result: (.[] | select(.id == $id))}' "$DB" ;;
+    DELETE)
+        ((fail)) && timed_out
+        jq -e --arg id "$id" 'any(.[]; .id == $id)' "$DB" >/dev/null || refuse 81044 "Record does not exist."
+        save --arg id "$id" 'map(select(.id != $id))'
+        printf '{"success":true,"errors":[],"messages":[],"result":{"id":"%s"}}\n' "$id" ;;
+    PATCH)
+        rec=$(jq -ce 'select(type == "object" and keys == ["comment"] and (.comment | type) == "string")' <<<"$data" 2>/dev/null) \
+            || refuse 9000 "invalid request body"
+        jq -e --arg id "$id" 'any(.[]; .id == $id)' "$DB" >/dev/null || refuse 81044 "Record does not exist."
+        save --arg id "$id" --argjson r "$rec" 'map(if .id == $id then .comment = $r.comment else . end)'
+        ((fail)) && timed_out
+        printf '{"success":true,"errors":[],"messages":[],"result":{"id":"%s"}}\n' "$id" ;;
+esac
+exit 0

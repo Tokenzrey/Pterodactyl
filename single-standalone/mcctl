@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# mcctl: run Minecraft servers (itzg/minecraft-server) behind one public port with mc-router. Run ./mcctl help.
+# State lives in Docker (containers and labels); one folder and one generated compose.yaml per server.
+set -u -o pipefail
+umask 077
+
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+    echo "mcctl needs bash >= 4.4 (found ${BASH_VERSION})" >&2; exit 3
+fi
+
+MCCTL_HOME=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd -P)
+export MCCTL_HOME
+MCCTL_VERSION=0.1.0
+
+# MCCTL_TEST_MODE=1 (tests/ only) must never meet a real Docker: refuse unless `docker` is the test fake (or absent) and
+# DOCKER_HOST points at a socket that does not exist.
+if [[ ${MCCTL_TEST_MODE:-0} == 1 ]]; then
+    _d=$(command -v docker 2>/dev/null || true)
+    if [[ ( -n $_d && $_d != */fakebin/docker ) || ${DOCKER_HOST:-} != unix:///nonexistent* ]]; then
+        echo "mcctl: MCCTL_TEST_MODE=1 but docker is '${_d:-none}' and DOCKER_HOST is '${DOCKER_HOST:-unset}': refusing to run" >&2
+        exit 4
+    fi
+    unset _d
+fi
+
+# common.sh first (every other file uses it), then the rest; a task adds a command by dropping lib/<name>.sh with cmd_* functions
+# shellcheck source=lib/common.sh
+source "$MCCTL_HOME/lib/common.sh" || { echo "cannot load lib/common.sh" >&2; exit 1; }
+for _lib in "$MCCTL_HOME"/lib/*.sh; do
+    [[ $_lib == */common.sh ]] && continue
+    # shellcheck disable=SC1090
+    source "$_lib" || { echo "cannot load $_lib" >&2; exit 1; }
+done
+unset _lib
+
+usage() {
+    cat <<EOF
+mcctl ${MCCTL_VERSION}: Minecraft servers (itzg/minecraft-server) behind one public port
+
+Usage: mcctl [--yes] <command> [args]
+
+Commands: help version $(compgen -A function cmd_ | sed 's/^cmd_//' | tr '\n_' ' -')
+
+Global flag: --yes answers confirmations (needed when there is no terminal; same as MCCTL_YES=1).
+Exit codes: 0 ok, 1 failure, 2 usage, 3 preflight/config invalid, 4 refused for safety.
+EOF
+}
+
+# --yes is accepted anywhere
+ARGS=()
+for _a in "$@"; do
+    if [[ $_a == --yes ]]; then MCCTL_YES=1; else ARGS+=("$_a"); fi
+done
+export MCCTL_YES=${MCCTL_YES:-0}
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
+cmd=${1:-help}
+shift || true
+case $cmd in
+    help|-h|--help) usage ;;
+    --version) echo "mcctl $MCCTL_VERSION" ;;
+    *)
+        fn=cmd_${cmd//-/_}
+        if [[ $cmd =~ ^[a-z][a-z0-9-]*$ ]] && declare -F "$fn" >/dev/null; then
+            # every command runs on a valid configuration; `doctor` loads it itself so that it can report problems, not stop at them
+            [[ $cmd == doctor ]] || load_config || exit "$EX_PREFLIGHT"
+            "$fn" "$@"
+        else
+            err "unknown command: $cmd"; usage >&2; exit "$EX_USAGE"
+        fi ;;
+esac

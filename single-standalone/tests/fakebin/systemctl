@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Strict fake `systemctl` for tests. Models `stop UNIT...` (the dead-man timer cancel).
+# Units are recorded under $FAKE_STATE/systemd/. Every call is appended to
+# $FAKE_STATE/calls.log as "systemctl ARGV". Any other invocation is logged as
+# "UNKNOWN systemctl ARGV" and exits 97.
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S/systemd"
+line=systemctl
+for a in "$@"; do line+=" ${a//$'\n'/\\n}"; done
+
+if [[ ${1:-} != stop ]]; then
+    printf 'UNKNOWN %s\n' "$line" >>"$S/calls.log"
+    echo "fake systemctl: call not modelled: $*" >&2
+    exit 97
+fi
+printf '%s\n' "$line" >>"$S/calls.log"
+shift
+for u in "$@"; do
+    [[ -n $u ]] && rm -f "$S/systemd/$u"
+done
+exit 0

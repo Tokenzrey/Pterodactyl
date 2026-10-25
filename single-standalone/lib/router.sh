@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# The router stack: mc-router (the one public port) and the egress guard. Sourced by ./mcctl, never executed.
+#
+# templates/stack.compose.yml is one compose project, mcctl-stack. The game containers are NOT in it: each server has its own
+# project (mcctl-NAME) and joins the external network mcctl_game, which `up` creates with MCCTL_GAME_SUBNET before compose starts.
+# The egress guard filters that subnet; it is the reason `up` refuses a network that already exists with another subnet.
+# MCCTL_GAME_SUBNET and MCCTL_ROUTER_IP (exported by load_config) reach the stack file through compose's variable interpolation.
+
+ROUTER_PORT=25565
+STACK_PROJECT=mcctl-stack
+GAME_NETWORK=mcctl_game
+STACK_COMPOSE=$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates" 2>/dev/null && pwd -P)/stack.compose.yml
+
+# stack_dc ARGS...: docker compose for the router stack
+stack_dc() { docker compose -p "$STACK_PROJECT" -f "$STACK_COMPOSE" "$@"; }
+
+# router_port_free: 0 when nothing listens on the public port; 1 when something does, printing its `ss -ltnp` line(s) on stdout
+# (the process is named there when this user may see it); 2 when that cannot be found out (no ss, or ss failed: the reason is on
+# stderr). Control characters are removed from what is printed, because a process name is chosen by whoever started it.
+router_port_free() {
+    local out
+    command -v ss >/dev/null 2>&1 || { err "ss not found: install iproute2 (needed to check whether port $ROUTER_PORT is free)"; return 2; }
+    out=$(ss -H -ltnp "( sport = :$ROUTER_PORT )" 2>/dev/null) || { err "'ss' failed, so mcctl cannot tell whether port $ROUTER_PORT is free"; return 2; }
+    [[ -n $out ]] || return 0
+    printf '%s\n' "$out" | tr -cd '[:print:]\n' | tr -s ' '
+    return 1
+}
+
+# _router_is_ours: 0 when the mc-router of this stack is running (so a listener on the port is our own, and `up` may run again)
+_router_is_ours() { [[ -n $(stack_dc ps -q --status running mc-router 2>/dev/null) ]]; }
+
+# cmd_up: start (or update) the router stack. Order: the port check, the game network, then compose. A refusal creates nothing.
+cmd_up() {
+    (($# == 0)) || die "usage: mcctl up" "$EX_USAGE"
+    local listener rc=0 ids subnets
+    listener=$(router_port_free) || rc=$?
+    case $rc in
+        0) ;;
+        1) _router_is_ours || die "port $ROUTER_PORT is already in use, so the router cannot start. Listener: ${listener:-unknown}
+       Stop whatever holds it (for another mc-router: its own stack), or run 'ss -ltnp \"sport = :$ROUTER_PORT\"' as root to see the process. Nothing was created." "$EX_PREFLIGHT" ;;
+        *) die "cannot tell whether port $ROUTER_PORT is free (see above). Nothing was created." "$EX_PREFLIGHT" ;;
+    esac
+
+    ids=$(docker network ls -q --filter "name=^${GAME_NETWORK}\$") \
+        || die "cannot ask Docker ('docker network ls' failed): is the daemon running, and may this user use it? Nothing was created."
+    if [[ -z $ids ]]; then
+        docker network create --driver bridge --subnet "$MCCTL_GAME_SUBNET" --label mcctl.managed=true "$GAME_NETWORK" >/dev/null \
+            || die "cannot create the network $GAME_NETWORK on $MCCTL_GAME_SUBNET (see above). A subnet that overlaps another Docker network or route is the usual cause: change MCCTL_GAME_SUBNET and MCCTL_ROUTER_IP in config/mcctl.env."
+    else
+        # the egress rules are written for MCCTL_GAME_SUBNET: a network on another subnet would be left unguarded
+        subnets=$(docker network inspect --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' "$GAME_NETWORK") \
+            || die "cannot inspect the network $GAME_NETWORK"
+        [[ " $subnets" == *" $MCCTL_GAME_SUBNET "* ]] \
+            || die "the network $GAME_NETWORK exists with subnet ${subnets:-none}, but MCCTL_GAME_SUBNET is $MCCTL_GAME_SUBNET, and the egress rules guard that one. Set MCCTL_GAME_SUBNET (and MCCTL_ROUTER_IP) to match, or stop the game servers and remove the network with: docker network rm $GAME_NETWORK" "$EX_PREFLIGHT"
+    fi
+
+    stack_dc up -d --wait \
+        || die "docker compose up failed (see above). The router only starts once the egress guard is healthy: see why with: docker logs mcctl-egress-guard"
+    info "router up: port $ROUTER_PORT, address $MCCTL_ROUTER_IP on $GAME_NETWORK ($MCCTL_GAME_SUBNET); compose reported the egress guard healthy"
+    # SFTP is its own project (lib/sftp.sh): started after the router, and a failure there does not undo the router
+    sftp_up || die "the router is up, but the SFTP stack did not start (see above). Fix the cause, then run 'mcctl up' again or 'mcctl sftp repair'"
+    info "SFTP up on $(_sftp_bind):2222 (key-only login; MCCTL_SFTP_PUBLIC=1 publishes it on 0.0.0.0)"
+}
+
+# cmd_down: stop the router stack and the SFTP stack. Players connected through the router are disconnected. The game network, the
+# game servers and the egress rules (they belong to the Docker host, not to the guard container) are left as they are.
+cmd_down() {
+    (($# == 0)) || die "usage: mcctl down" "$EX_USAGE"
+    stack_dc down || die "docker compose down failed (see above)"
+    sftp_down || die "the router stack is stopped, but the SFTP stack could not be stopped (see above)"
+    info "router stopped. The game servers, the network $GAME_NETWORK and the egress rules are untouched: 'mcctl up' starts the router again"
+}
+
+# router_reload: tell mc-router to re-read its routes (after create and delete change the labels)
+router_reload() { stack_dc kill -s HUP mc-router >/dev/null; }

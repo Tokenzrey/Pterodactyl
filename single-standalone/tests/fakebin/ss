@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Strict fake `ss` for tests: it never looks at the sockets of this machine. Modelled calls:
+#     ss -H -ltnp "( sport = :PORT )"     one port filter (router_port_free, ssh_ports)
+#     ss -H -ltnp                          no filter: all listeners (ssh_ports sshd detection)
+#     ss -H -ltn "( sport = :PORT )"       -ltn variant (ssh_ports 22 fallback)
+# Every such call is appended to $FAKE_STATE/calls.log as "ss ARGV". Any other flag or
+# filter is logged as "UNKNOWN ss ARGV" and refused with exit 97. The answer is replayed
+# from $FAKE_STATE/ss.listen, one line per listener in the real format
+#     LISTEN 0 4096 0.0.0.0:25565 0.0.0.0:* users:(("docker-proxy",pid=811,fd=4))
+# keeping the lines whose local address (4th field) ends in :PORT, as the real filter does.
+# When $FAKE_STATE/ss.rc exists it is the exit status, and nothing is printed.
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S"
+line=ss
+for a in "$@"; do line+=" ${a//$'\n'/\\n}"; done
+
+port="" ok=1 re='^\( sport = :([0-9]{1,5}) \)$'
+for a in "$@"; do
+    if [[ $a =~ ^-[Hltnp]+$ ]]; then continue
+    elif [[ -z $port && $a =~ $re ]]; then port=${BASH_REMATCH[1]}
+    else ok=0; fi
+done
+if ((!ok)); then
+    printf 'UNKNOWN %s\n' "$line" >>"$S/calls.log"
+    echo "fake ss: call not modelled: $*" >&2
+    exit 97
+fi
+printf '%s\n' "$line" >>"$S/calls.log"
+
+if [[ -f $S/ss.rc ]]; then
+    rc=$(<"$S/ss.rc")
+    [[ $rc =~ ^[0-9]+$ ]] || rc=1
+    exit "$rc"
+fi
+[[ -f $S/ss.listen ]] || exit 0
+awk -v p="$port" 'p == "" || $4 ~ (":" p "$")' "$S/ss.listen"
+exit 0

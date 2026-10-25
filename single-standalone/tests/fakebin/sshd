@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Strict fake `sshd` for tests. Models only `sshd -T`, which prints effective config
+# lines. The ports come from $FAKE_STATE/sshd.ports (one port per line). Every call is
+# appended to $FAKE_STATE/calls.log as "sshd ARGV". Any other invocation is logged as
+# "UNKNOWN sshd ARGV" and exits 97.
+S=${FAKE_STATE:?FAKE_STATE not set}
+mkdir -p "$S"
+line=sshd
+for a in "$@"; do line+=" ${a//$'\n'/\\n}"; done
+
+if [[ ${1:-} != -T || $# -ne 1 ]]; then
+    printf 'UNKNOWN %s\n' "$line" >>"$S/calls.log"
+    echo "fake sshd: call not modelled: $*" >&2
+    exit 97
+fi
+printf '%s\n' "$line" >>"$S/calls.log"
+
+[[ -f $S/sshd.ports ]] || exit 0
+while read -r p; do
+    [[ -n $p ]] && printf 'port %s\n' "$p"
+done <"$S/sshd.ports"
+exit 0
