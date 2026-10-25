@@ -53,7 +53,9 @@ if [[ $(printf '1.10\n1.9\n' | sort -V | head -n 1) == 1.9 ]]; then pass "sort -
 # mcctl, configuration, secrets
 if [[ -x $HOME_DIR/mcctl ]]; then pass "mcctl is executable"; else fail "mcctl is executable" "run: chmod +x $HOME_DIR/mcctl"; fi
 for k in MCCTL_DOMAIN MCCTL_PUBLIC_IPV4 MCCTL_CF_ZONE_ID; do
-    if [[ -n $(cfg "$k") ]]; then pass "$k is set"; else fail "$k is set" "set it in $ROOT/config/mcctl.env (see config/mcctl.env.example)"; fi
+    if [[ -n $(cfg "$k") ]]; then pass "$k is set"
+    elif [[ $k != MCCTL_DOMAIN ]] && grep -qi microsoft "$SYS/proc/version" 2>/dev/null; then note "$k not checked on WSL: DNS records need the public host (host A)"
+    else fail "$k is set" "set it in $ROOT/config/mcctl.env (see config/mcctl.env.example)"; fi
 done
 for f in cloudflare_token curseforge_api_key; do
     p=$ROOT/secrets/$f
