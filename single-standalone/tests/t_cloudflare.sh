@@ -219,6 +219,7 @@ docker ps -a -q --filter label=mcctl.hostname=play
 $(GET name=play.mc.example.net)
 $CURL -X POST $H --data {\"type\":\"A\",\"name\":\"play.mc.example.net\",\"content\":\"203.0.113.7\",\"ttl\":120,\"proxied\":false,\"comment\":\"mcctl name=s1\"} $API
 $(give_line "$SB/servers/s1/data")
+$(give_line "$SB/servers/s1/backups" 755)
 $(give_line "$SB/secrets/rcon-s1.TMP")
 $(sftp_ps_call)
 $(dcl s1 create)" "$(calls)" "calls: Docker checks, the DNS record, the game's user is given data and the secret, is SFTP running, compose create"
@@ -250,6 +251,7 @@ docker ps -a -q --filter label=mcctl.hostname=s2
 $(GET name=s2.mc.example.net)
 $CURL -X POST $H --data {\"type\":\"A\",\"name\":\"s2.mc.example.net\",\"content\":\"203.0.113.7\",\"ttl\":120,\"proxied\":false,\"comment\":\"mcctl name=s2\"} $API
 $(give_line "$SB/servers/s2/data")
+$(give_line "$SB/servers/s2/backups" 755)
 $(give_line "$SB/secrets/rcon-s2.TMP")
 $(sftp_ps_call)
 $(dcl s2 create)

@@ -161,7 +161,7 @@ Order:
 2. The name and the hostname are checked against Docker (exit 4 when taken; the message names the server that has the hostname).
 3. The DNS record `HOST.MCCTL_DOMAIN` is made (see [Cloudflare DNS](#cloudflare-dns)). A record of that name that already exists is
    refused (exit 4); a request that fails is exit 1. Either way nothing has been written yet.
-4. The files are written (`data/` and the RCON secret are given to the game's user first: see [RCON](#rcon-how-mcctl-talks-to-a-server)),
+4. The files are written (`data/`, `backups/` and the RCON secret are given to the game's user first: see [RCON](#rcon-how-mcctl-talks-to-a-server) and [mcctl repair](#mcctl-repair)),
    the server's SFTP user is added (see [mcctl sftp](#mcctl-sftp); a failure there only prints a warning), then `docker compose create`
    runs. mc-router needs no signal: it follows Docker's events.
 
@@ -466,6 +466,24 @@ does not filter Docker-published ports, so `mcctl firewall plan` lists the voice
 The value is the structural key `VOICE_PORT` in `server.env`. `mcctl set` refuses it (use `mcctl voice`). `export` carries it. `clone`
 and `import` do not: a port belongs to one server (two servers cannot publish the same UDP port), so the new server has no voice chat
 until `mcctl voice NAME set PORT` gives it one.
+
+## mcctl repair
+
+```
+mcctl repair NAME
+```
+
+Gives `data/`, `backups/` and `secrets/rcon-NAME` of a server to the game's user (UID 1000, `MCCTL_UID`), the owners a new server gets, and
+sets the mode of `backups/` to 755. Only owners and that one mode change, never the contents. It is safe to run again.
+
+**Why it exists.** The backup sidecar (`itzg/mc-backup`) starts as root and its `entrypoint-demoter` hands itself over to the **owner of
+`/backups`**. If `backups/` belongs to the host user, the sidecar runs as the host user: it cannot read the RCON secret or `data/`, both
+the game's, and every run ends with `cat: /run/secrets/rcon_password: Permission denied` while no backup is ever taken. A new server is
+made right (`create`, `clone`, `import`). A server made before that needs `mcctl repair NAME` once. `backups/` is 755 because the host
+reads the archives (`backup list`, `backup restore`); `servers/NAME` above it is 700, so no other user reaches it.
+
+A running server has only its backup sidecar restarted, so that it starts as its new owner. The game container is not touched: no
+player is disconnected.
 
 ## mcctl set, get, unset, env, apply
 
@@ -1038,6 +1056,10 @@ mcctl logs NAME [-f] [--tail N] [--level INFO|WARN|ERROR] [--grep TEXT]
 Streams a server's console log with colour, a level filter, and a text filter. A stopped server's log is shown
 too.
 
+Docker keeps at most 3 files of 10 MB of log for each container of a server (`logging` with `max-size` and `max-file` in the generated
+`compose.yaml`), so a chatty modpack cannot fill the disk. The older part of a long log is gone, not archived: `mcctl logs` shows what is
+kept. A server made before this limit gets it at its next recreate (`mcctl apply NAME`, which also shows the configuration as pending).
+
 | Option | Default | Meaning |
 |---|---|---|
 | `-f` | off | Follow: keep streaming new lines. Ctrl-C exits 0. |
@@ -1093,7 +1115,8 @@ The link check is a second barrier, in case the mount ever grows.
 
 **The other helpers.** Four steps need what neither the game's user nor the host user has. Each runs as root in a container with
 only the capability it needs, one path mounted at `/m`, no network and a read-only root file system: giving a file or folder to the
-game's user (`CHOWN`, for `data/` and the RCON secret); reading a server's folder to archive it (`DAC_READ_SEARCH`, read-only);
+game's user (`CHOWN`, for `data/`, `backups/` and the RCON secret; with `FOWNER` too when it sets the mode of `backups/`); reading a
+server's folder to archive it (`DAC_READ_SEARCH`, read-only);
 removing `data/`, `backups/` and `safety/` after the archive has been read back (`DAC_OVERRIDE`); and reading the RCON secret for
 `export --with-secrets` (`DAC_READ_SEARCH`, read-only). They use the pinned `alpine:3.20`, never `MCCTL_DATA_IMAGE`.
 

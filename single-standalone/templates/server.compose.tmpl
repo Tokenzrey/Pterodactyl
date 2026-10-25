@@ -6,6 +6,11 @@ services:
     image: {{IMAGE}}
     container_name: "{{CONTAINER}}"
     restart: {{RESTART}}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 60s
     mem_limit: "{{MEM_LIMIT}}"
     cpus: {{CPUS}}
@@ -37,6 +42,11 @@ services:
     image: itzg/mc-backup
     container_name: "{{CONTAINER}}-backup"
     restart: {{RESTART}}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     labels:
       - "mcctl.backup-for={{NAME}}"
     environment:

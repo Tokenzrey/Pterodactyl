@@ -6,6 +6,11 @@ services:
     image: itzg/minecraft-server
     container_name: "mc-settings"
     restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 60s
     mem_limit: "2816m"
     cpus: 2
@@ -37,6 +42,11 @@ services:
     image: itzg/mc-backup
     container_name: "mc-settings-backup"
     restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     labels:
       - "mcctl.backup-for=settings"
     environment:

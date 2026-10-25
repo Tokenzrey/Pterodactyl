@@ -46,7 +46,11 @@ root_docker_line() { # MODE PATH CAPS CMD...
     cmd="$*"
     printf '%s --security-opt no-new-privileges --read-only --tmpfs /tmp --pids-limit 64 --memory 128m -v %s:/m:%s alpine:3.20 %s\n' "$l" "$path" "$mode" "$cmd"
 }
-give_line() { root_docker_line rw "$1" CHOWN 'sh -c chown -- "$1:$1" /m && [ "$(stat -c %u /m)" = "$1" ] sh 1000'; }
+GIVE_SCRIPT='chown -- "$1:$1" /m && { [ -z "${2-}" ] || chmod "$2" /m; } && [ "$(stat -c %u /m)" = "$1" ]'
+give_line() { # PATH [MODE]: with a MODE the helper also holds FOWNER and the mode is its extra argument
+    if [[ -n ${2-} ]]; then root_docker_line rw "$1" "CHOWN FOWNER" "sh -c $GIVE_SCRIPT sh 1000 $2"
+    else root_docker_line rw "$1" CHOWN "sh -c $GIVE_SCRIPT sh 1000"; fi
+}
 archive_line() { root_docker_line ro "$1" DAC_READ_SEARCH "tar -czf - -C /m ${2:-data backups}"; }   # PATH [MEMBERS]: the folders that exist
 clear_line() { root_docker_line rw "$1" "DAC_OVERRIDE DAC_READ_SEARCH" 'rm -rf -- /m/data /m/backups /m/safety'; }
 

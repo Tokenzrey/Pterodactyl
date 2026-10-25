@@ -6,6 +6,11 @@ services:
     image: itzg/minecraft-server
     container_name: "mc-vanilla"
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 60s
     mem_limit: "2816m"
     cpus: 2
@@ -33,6 +38,11 @@ services:
     image: itzg/mc-backup
     container_name: "mc-vanilla-backup"
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     labels:
       - "mcctl.backup-for=vanilla"
     environment:

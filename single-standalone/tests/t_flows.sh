@@ -33,6 +33,7 @@ tags() {
         -e 's|^docker logs --tail [0-9][0-9]* mc-[a-z0-9-]*$|logs|' \
         -e 's|^docker logs --tail [0-9][0-9]* -f mc-[a-z0-9-]*$|logs -f|' \
         -e 's|^docker run --rm .* -v [^ ]*/data:/m:rw .* sh -c chown .*$|give data|' \
+        -e 's|^docker run --rm .* -v [^ ]*/backups:/m:rw .* sh -c chown .*$|give backups|' \
         -e 's|^docker run --rm .* -v [^ ]*\.TMP:/m:rw .* sh -c chown .*$|give secret|' \
         -e 's|^docker run --rm .* -v [^ ]*:/m:ro .* tar -czf .*$|archive|' \
         -e 's|^docker run --rm .* -v [^ ]*:/m:rw .* rm -rf -- /m/data.*$|clear|' <<<"$(calls)"
@@ -100,6 +101,7 @@ host? s1
 dns? s1.mc.example.net
 dns+ s1.mc.example.net
 give data
+give backups
 give secret
 sftp?
 compose[s1] create
@@ -145,6 +147,7 @@ host? play
 dns? play.mc.example.net
 dns+ play.mc.example.net
 give data
+give backups
 give secret
 sftp?
 compose[a] create
@@ -156,6 +159,7 @@ host? play2
 dns? play2.mc.example.net
 dns+ play2.mc.example.net
 give data
+give backups
 give secret
 sftp?
 compose[b] create
@@ -185,6 +189,7 @@ host? s1
 dns? s1.mc.example.net
 dns+ s1.mc.example.net
 give data
+give backups
 give secret
 sftp?
 compose[s1] create
@@ -198,6 +203,7 @@ host? s1
 dns? s1.mc.example.net
 dns+ s1.mc.example.net
 give data
+give backups
 give secret
 sftp?
 compose[s1] create" "$(tags)" "the ordered call log: DNS, create, clean-up in reverse (containers, record, folder), then a clean retry"
@@ -223,6 +229,7 @@ host? atm
 dns? atm.mc.example.net
 dns+ atm.mc.example.net
 give data
+give backups
 give secret
 sftp?
 compose[atm] create
@@ -265,6 +272,7 @@ host? s1
 dns? s1.mc.example.net
 dns+ s1.mc.example.net
 give data
+give backups
 give secret
 sftp?
 compose[s1] create
@@ -332,6 +340,7 @@ host? seven
 dns? seven.mc.example.net
 dns+ seven.mc.example.net
 give data
+give backups
 give secret
 sftp?
 compose[s7] create

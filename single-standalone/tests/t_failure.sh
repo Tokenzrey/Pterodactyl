@@ -92,7 +92,7 @@ clean
 FAIL_AT=0 run "${CREATE[@]}"
 assert_eq 0 "$RC" "create, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 4 "$total" "create makes 4 mutating calls (DNS POST, the chown of data/, the chown of the RCON secret, compose create)"
+assert_eq 5 "$total" "create makes 5 mutating calls (DNS POST, the chown of data/ and of backups/, the chown of the RCON secret, compose create)"
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     clean
     FAIL_AT=$FAIL_AT_N run "${CREATE[@]}"
@@ -211,7 +211,7 @@ nt_one() { local o=0 n=0; nt_world "$1" "$2" && o=1; nt_world "$3" "$4" && n=1; 
 created; echo exited >"$FAKE_STATE/docker.inspect"
 FAIL_AT=0 run clone s1 c1; assert_eq 0 "$RC" "clone, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 4 "$total" "clone makes 4 mutating calls (DNS POST, the chown of data/, the chown of the RCON secret, compose create)"
+assert_eq 5 "$total" "clone makes 5 mutating calls (DNS POST, the chown of data/ and of backups/, the chown of the RCON secret, compose create)"
 run --yes delete c1 >/dev/null
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     rm -f -- "$FAKE_STATE/mutations"; truncate_log
@@ -292,7 +292,7 @@ rm -f -- "$FAKE_STATE/docker.run.tar"
 reset_import() { rm -f -- "$FAKE_STATE/mutations"; truncate_log; }
 FAIL_AT=0 run import "$SB/imp.tgz" i1 --hostname ih1; assert_eq 0 "$RC" "import, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 5 "$total" "import makes 5 mutating calls (DNS POST, the chown of data/, the chown of the RCON secret, the helper's data extraction, compose create)"
+assert_eq 6 "$total" "import makes 6 mutating calls (DNS POST, the chown of data/ and of backups/, the chown of the RCON secret, the helper's data extraction, compose create)"
 run --yes delete i1 >/dev/null; fake_gone i1 ih1
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     reset_import

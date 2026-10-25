@@ -111,8 +111,11 @@ container; the current templates include the capability and the host-key volume.
 
 The server runs as UID 1000 and cannot read `secrets/rcon-NAME`, which belongs to another user (usually `deploy`, UID 1001). Check with
 `ls -ln secrets/` and `id -u deploy`. mcctl gives the file to UID 1000 itself whenever it writes it (`create`, `rotate-rcon`,
-`import`), so this comes back only for a file made before that change. Then, once, as root: `chown 1000:1000 secrets/rcon-NAME`, and
-`mcctl start NAME`. Do not change `cloudflare_token`: the host reads it. See [VPS setup step 11](vps-setup.md#11-secrets-and-who-can-read-them).
+`import`), so this comes back only for a server made before that change. Run `mcctl repair NAME` once: it gives the secret, `data/` and
+`backups/` to UID 1000 without sudo, and restarts only the backup sidecar. If the message comes from the **backup sidecar**
+(`mc-NAME-backup`, repeating `waiting initial delay of 2m`, and `backups/` stays empty), the cause is the same: the sidecar runs as the
+owner of `backups/`, so that folder must belong to UID 1000 as well. Do not change `cloudflare_token`: the host reads it. See
+[VPS setup step 11](vps-setup.md#11-secrets-and-who-can-read-them).
 
 ### Cloudflare: `10000 Authentication error` or `can not be used before`
 

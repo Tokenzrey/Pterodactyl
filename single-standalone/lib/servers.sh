@@ -88,8 +88,8 @@ _create_fail() {
 # (nothing is touched when one is taken); then the DNS record; the folders (data, backups, and the attach points mods and plugins, mode
 # 755: attach_dir, lib/compose.sh); data/ is given to the game's user, so that the helper can write the world into it before the first
 # start; the RCON secret; "WRITE_FN NAME HOST" (the server's files; it calls _create_fail itself when one fails); compose.yaml; the SFTP
-# user; `compose create`. A failure after the DNS record takes back what was done (_create_fail, in reverse order). mc-router needs no
-# signal: it follows Docker's events.
+# user; `compose create`. backups/ is given to the game's user too (the backup sidecar runs as its owner). A failure after the DNS record
+# takes back what was done (_create_fail, in reverse order). mc-router needs no signal: it follows Docker's events.
 _provision() {
     local name=$1 host=$2 write=$3 dir rc
     dir=$MCCTL_ROOT/servers/$name
@@ -109,6 +109,9 @@ _provision() {
     attach_dir "$name" mods >/dev/null && attach_dir "$name" plugins >/dev/null \
         || _create_fail "$name" "$host" "cannot create the mods and plugins folders of $name (see above)"
     _give_to_game "$dir/data" || _create_fail "$name" "$host" "cannot give $dir/data to the game's user (see above)"
+    # the backup sidecar runs as the owner of backups/ (its entrypoint-demoter matches /backups): it must be the game's user, which owns
+    # the secret and data/ it reads. The host reads the archives, so the folder is 755; servers/NAME above it is 700.
+    _give_to_game "$dir/backups" 755 || _create_fail "$name" "$host" "cannot give $dir/backups to the game's user (see above)"
     _write_rcon_secret "$name" || _create_fail "$name" "$host" "cannot write secrets/rcon-$name"   # lib/rcon.sh; a stale file of that name is replaced
     "$write" "$name" "$host"
     write_compose "$name" || _create_fail "$name" "$host" "cannot render $dir/compose.yaml (see above)"
@@ -498,6 +501,31 @@ cmd_delete() {
 # _delete_dns NAME: the DNS records of NAME (cf_delete_server, which deletes by id only records whose comment, as Cloudflare answered
 # it, is exactly "mcctl name=NAME"). 1 when one of them could not be deleted or Cloudflare could not be asked; each is named above.
 _delete_dns() { cf_delete_server "$1"; }
+
+# ---- repair ------------------------------------------------------------------------------------------------------------------
+
+# cmd_repair NAME: give data/, backups/ (mode 755) and secrets/rcon-NAME to the game's user, the owners a new server gets. For a server
+# made before that: the backup sidecar runs as the owner of backups/ (its entrypoint-demoter matches /backups), so with a backups/ of the
+# host user it cannot read the secret or data/ and takes no backup. Only owners (and the mode of backups/) change, never the contents;
+# it is safe to run again. A running server's backup sidecar is restarted, alone, so that it starts as the new owner; the game is not.
+cmd_repair() {
+    (($# == 1)) || die "usage: mcctl repair NAME" "$EX_USAGE"
+    local name=$1 dir st
+    _need_server "$name"
+    dir=$(server_dir "$name") || exit "$EX_USAGE"
+    [[ -d $dir/data && -d $dir/backups ]] || die "$dir has no data/ or backups/: nothing to repair" "$EX_FAIL"
+    [[ -f $MCCTL_ROOT/secrets/rcon-$name ]] || die "secrets/rcon-$name is missing: nothing was changed" "$EX_FAIL"
+    _give_to_game "$dir/data" || exit "$EX_FAIL"
+    _give_to_game "$dir/backups" 755 || exit "$EX_FAIL"
+    _give_to_game "$MCCTL_ROOT/secrets/rcon-$name" || exit "$EX_FAIL"
+    st=$(_server_state "$name") || die "$name: owners repaired, but Docker could not be asked whether it runs (see above): mcctl restart $name starts its backup sidecar again" "$EX_FAIL"
+    if [[ $st == running ]]; then
+        dc "$name" restart backup || die "$name: owners repaired, but the backup sidecar did not restart (see above): mcctl restart $name" "$EX_FAIL"
+        info "$name: owners repaired; the backup sidecar restarted as the game's user (the game was not touched)"
+    else
+        info "$name: owners repaired; the backup sidecar starts as the game's user with the server"
+    fi
+}
 
 # ---- list, status ------------------------------------------------------------------------------------------------------------
 

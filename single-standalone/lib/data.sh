@@ -86,12 +86,18 @@ _root_docker() {
         --read-only --tmpfs /tmp --pids-limit 64 --memory 128m -v "$path:/m:$mode" "$DATA_IMAGE" "$@"
 }
 
-# _give_to_game PATH: PATH (a file or a folder) belongs to the game's user from now on, its mode unchanged. The server reads its secrets
-# and writes its data as that user, and mcctl runs as the host user, which cannot chown: a helper with CHOWN alone does it.
+# _give_to_game PATH [MODE]: PATH (a file or a folder) belongs to the game's user from now on; its mode stays, or becomes MODE (octal) when
+# given. The server reads its secrets and writes its data as that user, and mcctl runs as the host user, which cannot chown: a helper
+# with CHOWN does it (and FOWNER, only when a MODE is asked for).
 _give_to_game() {
-    local path=$1 uid
+    local path=$1 mode=${2-} uid caps=CHOWN
+    local -a margs=()
     uid=$(game_uid) || exit "$EX_PREFLIGHT"
-    _root_docker rw "$path" CHOWN sh -c 'chown -- "$1:$1" /m && [ "$(stat -c %u /m)" = "$1" ]' sh "$uid" \
+    if [[ -n $mode ]]; then
+        [[ $mode =~ ^[0-7]{3,4}$ ]] || { err "${mode@Q} is not an octal mode"; return "$EX_FAIL"; }
+        caps="CHOWN FOWNER" margs=("$mode")
+    fi
+    _root_docker rw "$path" "$caps" sh -c 'chown -- "$1:$1" /m && { [ -z "${2-}" ] || chmod "$2" /m; } && [ "$(stat -c %u /m)" = "$1" ]' sh "$uid" "${margs[@]}" \
         || { err "cannot give ${path@Q} to UID $uid (see above)"; return "$EX_FAIL"; }
 }
 

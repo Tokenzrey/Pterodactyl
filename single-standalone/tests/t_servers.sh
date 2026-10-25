@@ -81,6 +81,7 @@ assert_eq "docker ps -a -q --filter label=mcctl.name=s1
 docker ps -a -q --filter label=mcctl.hostname=survival
 $(dns_made survival s1)
 $(give_line "$SB/servers/s1/data")
+$(give_line "$SB/servers/s1/backups" 755)
 $(give_line "$SB/secrets/rcon-s1.TMP")
 $(sftp_ps_call)
 docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml create" "$(calls)" "calls: name check, hostname check, the DNS record, the game's user is given data and the secret, is SFTP running, compose create, in that order"
@@ -187,6 +188,7 @@ assert_eq "docker ps -a -q --filter label=mcctl.name=s3
 docker ps -a -q --filter label=mcctl.hostname=s3
 $(dns_made s3)
 $(give_line "$SB/servers/s3/data")
+$(give_line "$SB/servers/s3/backups" 755)
 $(give_line "$SB/secrets/rcon-s3.TMP")
 $(sftp_ps_call)
 docker compose -p mcctl-s3 -f $SB/servers/s3/compose.yaml create

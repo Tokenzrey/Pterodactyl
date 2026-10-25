@@ -137,6 +137,7 @@ assert_eq "docker ps -a -q --filter label=mcctl.name=cf
 docker ps -a -q --filter label=mcctl.hostname=cf
 $(dns_made cf)
 $(give_line "$SB/servers/cf/data")
+$(give_line "$SB/servers/cf/backups" 755)
 $(give_line "$SB/secrets/rcon-cf.TMP")
 $(sftp_ps_call)
 docker compose -p mcctl-cf -f $SB/servers/cf/compose.yaml create" "$(calls)" "calls: name check, hostname check, the DNS record, the game's user is given data and the secret, is SFTP running, compose create"

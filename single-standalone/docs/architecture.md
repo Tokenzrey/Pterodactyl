@@ -10,7 +10,7 @@ Docker is the only record of what exists: the containers and their labels. Folde
 flowchart TD
     A["validate flags (nothing is touched yet)"] --> B["server_exists, hostname_taken, leftover dir"]
     B --> C["cf_create_record: the DNS record"]
-    C --> D["folders, data/ given to the game's UID, RCON secret"]
+    C --> D["folders, data/ and backups/ given to the game's UID, RCON secret"]
     D --> E["config files: server.env, modpack.env, backup.env"]
     E --> F["write_compose"]
     F --> G["sftp_add_user"]

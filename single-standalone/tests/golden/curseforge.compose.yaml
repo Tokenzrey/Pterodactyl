@@ -6,6 +6,11 @@ services:
     image: itzg/minecraft-server
     container_name: "mc-curseforge"
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 60s
     mem_limit: "7936m"
     cpus: 4
@@ -35,6 +40,11 @@ services:
     image: itzg/mc-backup
     container_name: "mc-curseforge-backup"
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     labels:
       - "mcctl.backup-for=curseforge"
     environment:
