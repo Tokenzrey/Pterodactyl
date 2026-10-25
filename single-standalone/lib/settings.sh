@@ -134,7 +134,7 @@ cmd_set() {
         if [[ $v == *[[:cntrl:]]* ]]; then err "$k: the value must be one line with no control character"; bad=$EX_USAGE; continue; fi
         if _is_credential "$k"; then err "$k looks like a credential: put it in a file under secrets/ and set ${k}_FILE"; bad=$EX_REFUSED; continue; fi
         if [[ $SE_STRUCTURAL == *" $k "* ]]; then
-            err "$k is structural: set does not change it (MEMORY and CPUS: mcctl edit; AUTOSTART: mcctl autostart)"; bad=$EX_REFUSED; continue
+            err "$k is structural: set does not change it (MEMORY and CPUS: mcctl edit; AUTOSTART: mcctl autostart; VOICE_PORT: mcctl voice)"; bad=$EX_REFUSED; continue
         fi
         if [[ $SE_RESERVED == *" $k "* ]]; then err "$k is reserved: mcctl's RCON and CurseForge wiring depends on it"; bad=$EX_REFUSED; continue; fi
         if t=$(settings_type "$k"); then
@@ -206,7 +206,7 @@ cmd_unset() {
     shift
     for k; do
         [[ $k =~ ^[A-Z][A-Z0-9_]*$ ]] || die "KEY ${k@Q} must be capitals, digits and _, and start with a letter" "$EX_USAGE"
-        [[ $SE_STRUCTURAL != *" $k "* ]] || die "$k is structural: unset does not remove it (MEMORY and CPUS: mcctl edit; AUTOSTART: mcctl autostart)" "$EX_REFUSED"
+        [[ $SE_STRUCTURAL != *" $k "* ]] || die "$k is structural: unset does not remove it (MEMORY and CPUS: mcctl edit; AUTOSTART: mcctl autostart; VOICE_PORT: mcctl voice)" "$EX_REFUSED"
     done
     _need_server "$name"
     dir=$(server_dir "$name") || exit "$EX_USAGE"

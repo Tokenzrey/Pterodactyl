@@ -32,6 +32,7 @@ services:
       - ./plugins:/plugins:ro
     networks:
       - mcctl_game
+{{VOICE_PORTS}}
   backup:
     image: itzg/mc-backup
     container_name: "{{CONTAINER}}-backup"

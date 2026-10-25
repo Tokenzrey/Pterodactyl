@@ -48,6 +48,8 @@ services:
       PRIVATE_RANGES: "10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10"
       CONN_LIMIT: ${MCCTL_CONN_LIMIT:?run through mcctl}
       RATE: ${MCCTL_RATE:?run through mcctl}
+      # the UDP ports of the servers' voice chat, one per server (MCCTL_VOICE_PORTS from lib/router.sh stack_dc; empty when none)
+      VOICE_PORTS: ${MCCTL_VOICE_PORTS:-}
     # DOCKER-USER sees the traffic game containers send through the host (LAN, other networks, the internet); the first rule of
     # it jumps into our own chain MCCTL-EGRESS, built here in the order it is read. A packet takes the FIRST rule that matches:
     #   1. replies and related traffic of connections that are allowed (a player on the LAN, whose reply is dropped otherwise)
@@ -80,6 +82,12 @@ services:
             -m connlimit --connlimit-above "$$CONN_LIMIT" --connlimit-mask 32 -j DROP
         ipt -A MCCTL-INGRESS -d "$$ROUTER_IP" -p tcp --dport 25565 -m conntrack --ctstate NEW \
             -m hashlimit --hashlimit-above "$$RATE" --hashlimit-mode srcip --hashlimit-name mcctl-new -j DROP
+        # voice chat (UDP, published per server): every packet counts, not only NEW ones, so one source cannot flood the port.
+        # 400 packets a second per source, burst 800: a player sends about 50 a second. Many players behind one address share it.
+        for p in $$VOICE_PORTS; do
+            ipt -A MCCTL-INGRESS -p udp --dport "$$p" -m hashlimit --hashlimit-above 400/second --hashlimit-burst 800 \
+                --hashlimit-mode srcip --hashlimit-name mcctl-voice -j DROP
+        done
         ipt -C DOCKER-USER -j MCCTL-INGRESS 2>/dev/null || ipt -I DOCKER-USER 2 -j MCCTL-INGRESS
         ipt -C INPUT -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP 2>/dev/null \
           || ipt -I INPUT 1 -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP
@@ -98,6 +106,7 @@ services:
           ipt -C MCCTL-INGRESS -s "$$GAME_SUBNET" -j RETURN &&
           ipt -C MCCTL-INGRESS -d "$$ROUTER_IP" -p tcp --dport 25565 -m conntrack --ctstate NEW -m connlimit --connlimit-above "$$CONN_LIMIT" --connlimit-mask 32 -j DROP &&
           ipt -S MCCTL-INGRESS | grep -q -- "-d $$ROUTER_IP[/ ].*--hashlimit-name mcctl-new -j DROP" &&
+          for p in $$VOICE_PORTS; do ipt -S MCCTL-INGRESS | grep -q -- "-p udp .*--dport $$p .*--hashlimit-name mcctl-voice -j DROP" || exit 1; done &&
           ipt -C INPUT -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP
       interval: 10s
       timeout: 5s

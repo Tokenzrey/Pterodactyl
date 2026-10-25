@@ -157,7 +157,7 @@ firewall_listeners() {
 }
 
 firewall_plan_text() {
-    local _ports_str _rules _rule _comment _ls _allowed=" " _port _addr _proc _docker="" _blocked=""
+    local _ports_str _rules _rule _comment _ls _voice _allowed=" " _port _addr _proc _docker="" _blocked=""
     _ports_str=$(ssh_ports)
     echo "SSH ports kept open: ${_ports_str//$'\n'/ }"
     echo "Policy: default deny incoming, allow outgoing. Docker/forwarding policy is not touched."
@@ -174,6 +174,8 @@ firewall_plan_text() {
     else
         echo "  ingress chain: not active: run mcctl up"
     fi
+    _voice=$(voice_ports 2>/dev/null | paste -sd' ' -)
+    [[ -z $_voice ]] || echo "Voice chat (UDP, published by Docker, limited per source in MCCTL-INGRESS): ${_voice}"
     # What the policy would do to the public listeners (read-only). A port in firewall_rules is allowed. A port published by Docker
     # (docker-proxy) is not filtered by ufw, so it is listed apart. Any other public listener would be blocked.
     if ! _ls=$(firewall_listeners); then

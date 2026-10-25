@@ -146,7 +146,7 @@ check_server_values() {
 # ---- the renderer ------------------------------------------------------------------------------------------------------------
 
 # SE_STRUCTURAL: the server.env keys mcctl reads for itself. They are never environment entries of the game container.
-SE_STRUCTURAL=" TYPE VERSION MEMORY CPUS EULA HOSTNAME_SLUG BACKUP_ENV_FILE AUTOSTART JAVA "
+SE_STRUCTURAL=" TYPE VERSION MEMORY CPUS EULA HOSTNAME_SLUG BACKUP_ENV_FILE AUTOSTART JAVA VOICE_PORT "
 
 # _is_credential KEY: 0 when KEY looks like a secret, whose value must then be a file (KEY_FILE), never a plain value
 _is_credential() { [[ ${1-} =~ (PASSWORD|PASSWD|SECRET|TOKEN|_KEY)$ ]]; }
@@ -211,6 +211,12 @@ render_server_compose() {
     esac
     local image=itzg/minecraft-server
     [[ -z ${se[JAVA]-} ]] || image+=":java${se[JAVA]}"
+    # VOICE_PORT: the voice chat's UDP port, published on the host (lib/voice.sh); the value is a number, so it is safe in the YAML
+    local voice_block=""
+    if [[ -n ${se[VOICE_PORT]-} ]]; then
+        voice_port_valid "${se[VOICE_PORT]}" || { err "server.env: VOICE_PORT is ${se[VOICE_PORT]@Q}, expected a UDP port from 1024 to 65535 other than 25565 (mcctl voice NAME set PORT)"; return "$EX_PREFLIGHT"; }
+        voice_block="    ports:"$'\n'"      - \"${se[VOICE_PORT]}:${se[VOICE_PORT]}/udp\""
+    fi
     local srv_type=${se[TYPE]:-VANILLA} version=${se[VERSION]:-} mem=${se[MEMORY]:-2G} cpus=${se[CPUS]:-2}
     local host=${se[HOSTNAME_SLUG]:-$name} eula=${se[EULA]:-FALSE} benv=${se[BACKUP_ENV_FILE]:-}
 
@@ -291,7 +297,7 @@ render_server_compose() {
     # mem_limit leaves room above the JVM heap (MEMORY) for metaspace, threads and the OS: heap + 25% + 256 MiB
     tv=([NAME]="$name" [CONTAINER]="mc-$name" [HOST]="$host" [DOMAIN]="$MCCTL_DOMAIN" [TYPE]="$srv_type" [IMAGE]="$image"
         [VERSION_ENV]="$version_line" [MEMORY]="$mem" [EULA]="$eula" [CPUS]="$cpus" [MEM_LIMIT]="$((mb + mb / 4 + 256))m" [EXTRA_ENV]="$extra" [BACKUP_ENV]="$benv_block"
-        [LIST_ENV]="$lblock" [MC_SECRET]="$mc_secret" [TOP_SECRET]="$top_secret" [RESTART]="$restart" [CONFIG_HASH]="$chash")
+        [LIST_ENV]="$lblock" [MC_SECRET]="$mc_secret" [TOP_SECRET]="$top_secret" [RESTART]="$restart" [CONFIG_HASH]="$chash" [VOICE_PORTS]="$voice_block")
     # every scalar is escaped; the blocks (EXTRA_ENV, VERSION_ENV, BACKUP_ENV, LIST_ENV, MC_SECRET, TOP_SECRET) were escaped or are fixed text
     for k in NAME CONTAINER HOST DOMAIN TYPE MEMORY EULA; do
         tv[$k]=$(compose_escape "${tv[$k]}") || return "$EX_REFUSED"

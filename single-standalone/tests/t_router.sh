@@ -77,8 +77,9 @@ assert_contains "$G_" "cap_add: [NET_ADMIN]" "with NET_ADMIN and nothing else"
 assert_not_contains "$G_" "privileged" "and is not privileged"
 assert_not_contains "$G_" "ports:" "and publishes nothing"
 assert_eq 'external:true' "$(sed -n '/^networks:/,$p' "$STACK" | grep external | tr -d ' ')" "the game network is external (mcctl up creates it)"
-leak=$(no_comments | sed -e 's/\$\$//g' -e 's/\${MCCTL_[A-Z_]*:?[^}]*}//g' | grep -n '\$')
-assert_eq "" "$leak" "every \$ is \$\$ or a \${MCCTL_*:?} (compose would otherwise fill in an empty variable)"
+# MCCTL_VOICE_PORTS may be empty (no server has voice chat): that is the one variable with an empty default, on purpose
+leak=$(no_comments | sed -e 's/\$\$//g' -e 's/\${MCCTL_[A-Z_]*:?[^}]*}//g' -e 's/\${MCCTL_VOICE_PORTS:-}//g' | grep -n '\$')
+assert_eq "" "$leak" "every \$ is \$\$, a \${MCCTL_*:?} or the empty default of MCCTL_VOICE_PORTS (compose would otherwise fill in an empty variable)"
 
 echo "the fake iptables (the tests below rely on it)"
 reset_ipt
@@ -190,7 +191,7 @@ grep -q 'RATE: ${MCCTL_RATE:?run through mcctl}' "$STACK" && pass "the service e
 [[ -n $GUARD && -n $HEALTH ]] && pass "the script and the healthcheck were found in the template" || fail "the script and the healthcheck were found in the template"
 # guard_env SUBNET ROUTER: run the given shell text the way the container does (env of the service, stubs for apk and sleep)
 guard_run() { # TEXT SUBNET ROUTER
-    GAME_SUBNET=$2 ROUTER_IP=$3 PRIVATE_RANGES=$RANGES CONN_LIMIT=${MCCTL_CONN_LIMIT:-10} RATE=${MCCTL_RATE:-10/second} PATH="$SB/guardbin:$PATH" sh -c "$1" >/dev/null 2>&1
+    GAME_SUBNET=$2 ROUTER_IP=$3 PRIVATE_RANGES=$RANGES CONN_LIMIT=${MCCTL_CONN_LIMIT:-10} RATE=${MCCTL_RATE:-10/second} VOICE_PORTS=${VOICE_PORTS-} PATH="$SB/guardbin:$PATH" sh -c "$1" >/dev/null 2>&1
 }
 GSUB=172.30.0.0/24 GROUTER=172.30.0.2
 run_guard()  { guard_run "$GUARD" "${1:-$GSUB}" "${2:-$GROUTER}"; }
@@ -230,6 +231,18 @@ assert_eq "$EXPECT" "$(chain MCCTL-EGRESS)" "in the same order"
 run_guard 10.50.0.0/24 10.50.0.2; assert_eq 0 $? "the same container with another subnet and router address"
 assert_eq "$(sed -e 's|172\.30\.0\.0/24|10.50.0.0/24|g' -e 's|172\.30\.0\.2|10.50.0.2|g' <<<"$EXPECT")" "$(chain MCCTL-EGRESS)" "refills the chain from the new values: no rule of the old subnet is left to shadow it"
 assert_eq 1 "$(chain DOCKER-USER | grep -c MCCTL-EGRESS)" "and DOCKER-USER still has one jump"
+run_guard
+
+echo "voice chat: each published voice port gets one rate-limited DROP in MCCTL-INGRESS, and the healthcheck needs every one of them"
+VOICE_PORTS="24454 24455" run_guard; assert_eq 0 $? "the guard runs with two voice ports"
+VOICE_RULE='-p udp --dport 24454 -m hashlimit --hashlimit-above 400/second --hashlimit-burst 800 --hashlimit-mode srcip --hashlimit-name mcctl-voice -j DROP'
+assert_contains "$(chain MCCTL-INGRESS)" "$VOICE_RULE" "24454 is limited per source: 400 packets a second, burst 800, every packet (not only NEW)"
+assert_contains "$(chain MCCTL-INGRESS)" "${VOICE_RULE/24454/24455}" "24455 has its own rule"
+assert_eq 2 "$(chain MCCTL-INGRESS | grep -c mcctl-voice)" "exactly the two voice rules"
+assert_eq "$(sed -n '1,3p' <<<"$EXPECT_INGRESS")" "$(chain MCCTL-INGRESS | sed -n '1,3p')" "the TCP rules keep their order before the voice rules"
+VOICE_PORTS="24454 24455" healthy; assert_eq 0 $? "the healthcheck passes with both voice rules"
+run_guard; assert_eq 0 "$(chain MCCTL-INGRESS | grep -c mcctl-voice)" "without voice ports the chain has no voice rule"
+VOICE_PORTS="24454" healthy; assert_eq 1 $? "the healthcheck fails while the voice rule of a published port is missing"
 run_guard
 
 echo "what the rules decide (a first-match model of the chains, not a packet test)"

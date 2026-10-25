@@ -143,6 +143,8 @@ _clone_files() {
     sdir=$(server_dir "$src") && ddir=$(server_dir "$new") || _create_fail "$new" "$host" "cannot find the folders of $src and $new"
     write_atomic "$ddir/server.env" _env_put_body "$sdir/server.env" HOSTNAME_SLUG "$host" \
         || _create_fail "$new" "$host" "cannot write $ddir/server.env"
+    # the voice chat port belongs to one server: the clone has none until mcctl voice NEW set PORT gives it one
+    server_env_unset "$new" VOICE_PORT || _create_fail "$new" "$host" "cannot write $ddir/server.env (see above)"
     for f in modpack.env backup.env; do
         [[ ! -f $sdir/$f ]] || write_atomic "$ddir/$f" cat -- "$sdir/$f" || _create_fail "$new" "$host" "cannot copy $f to $ddir"
     done
@@ -414,6 +416,8 @@ _import_files() {
         write_atomic "$dir/$f" tar -xzOf "$arch" "$f" || _create_fail "$name" "$host" "cannot write $dir/$f (see above)"
     done
     server_env_set "$name" HOSTNAME_SLUG "$host" || _create_fail "$name" "$host" "cannot write $dir/server.env (see above)"
+    # the voice chat port belongs to one server: the import has none until mcctl voice NAME set PORT gives it one
+    server_env_unset "$name" VOICE_PORT || _create_fail "$name" "$host" "cannot write $dir/server.env (see above)"
     for d in lists mods plugins; do
         grep -q "^$d/" <<<"$names" && small+=("$d")
     done

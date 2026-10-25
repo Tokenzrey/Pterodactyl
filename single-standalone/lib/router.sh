@@ -35,6 +35,9 @@ stack_dc() {
     MCCTL_ROUTER_BIND=127.0.0.1
     if dns_on; then MCCTL_ROUTER_BIND=0.0.0.0; fi
     export MCCTL_ROUTER_BIND
+    # the voice chat ports of the servers (lib/voice.sh): the guard opens each one in MCCTL-INGRESS
+    MCCTL_VOICE_PORTS=$(voice_ports 2>/dev/null | paste -sd' ' -)
+    export MCCTL_VOICE_PORTS
     docker compose -p "$STACK_PROJECT" -f "$STACK_COMPOSE" "$@"
 }
 

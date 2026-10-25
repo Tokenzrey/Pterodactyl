@@ -430,6 +430,43 @@ The value is the structural key `JAVA` in `server.env`. It is not an environment
 it (use `mcctl java`). The change is applied at once: a running server is recreated with the new image, a stopped one is made again
 (still stopped). `clone`, `export` and `import` carry the value.
 
+## mcctl voice
+
+```
+mcctl voice NAME                   show the voice chat port of NAME, if any
+mcctl voice NAME set PORT          publish voice chat on UDP PORT
+mcctl voice NAME off               stop publishing it
+```
+
+Voice chat (the Simple Voice Chat mod) sends its audio over **UDP**, on a port of its own. Minecraft's port 25565 is TCP and goes through
+`mc-router`, which cannot carry UDP, so a voice port is published directly: `docker compose` gets `ports: "PORT:PORT/udp"` for that one
+server, and nothing else of the server is published.
+
+`set PORT` needs a free UDP port from 1024 to 65535 (not 25565, and not a port another server already has: `mcctl voice` names the owner).
+It checks, before anything is written:
+
+- the router stack is running (`mcctl up`): its egress guard is what opens the port (see [the router and the egress guard](#the-router-and-the-egress-guard));
+- the mod's config exists, `config/voicechat/voicechat-server.properties` in the server's data. The mod writes it at the first start, so
+  start the server once (`mcctl start NAME`) before you run `set`.
+
+Then it writes, in this order: `VOICE_PORT` in `server.env` and `compose.yaml`; the guard of the router stack, recreated alone
+(`--no-deps`, so the router is not touched) and waiting until it is healthy; the port in the mod's config (`port=PORT`); and the
+server's containers, made again. When the guard cannot be set, `server.env` and `compose.yaml` are put back and nothing has changed.
+`off` removes the port from `server.env`, from `compose.yaml` and from the guard; the mod's config keeps its number.
+
+**What the guard allows.** Every voice port gets one rule in `MCCTL-INGRESS`: a packet to that port from one source is dropped above
+400 packets a second (burst 800). A player sends about 50 a second, so this does not touch a player, but a flood from one address does
+not reach the server. Many players behind one address share that address's limit. The guard's healthcheck requires every voice rule,
+so a missing rule makes `mcctl up` fail instead of leaving the port open without its limit.
+
+**Outside the host.** A cloud firewall in front of the VPS (the Contabo control panel, for example) must allow the UDP port too. ufw
+does not filter Docker-published ports, so `mcctl firewall plan` lists the voice ports apart. Deleting a server removes its port from
+`server.env`, but the guard keeps the rule until the next `mcctl up` (the rule limits nothing once nothing publishes the port).
+
+The value is the structural key `VOICE_PORT` in `server.env`. `mcctl set` refuses it (use `mcctl voice`). `export` carries it. `clone`
+and `import` do not: a port belongs to one server (two servers cannot publish the same UDP port), so the new server has no voice chat
+until `mcctl voice NAME set PORT` gives it one.
+
 ## mcctl set, get, unset, env, apply
 
 ```
@@ -488,7 +525,7 @@ A key that `properties` maps (below) but that has no type here is stored as text
 | What | Why |
 |------|-----|
 | a credential: a name ending in `PASSWORD`, `PASSWD`, `SECRET`, `TOKEN` or `_KEY` | a secret as a plain environment value would sit in `compose.yaml` and in `docker inspect`. Put it in a file under `secrets/` and set `KEY_FILE`. |
-| the structural keys `TYPE VERSION MEMORY CPUS EULA HOSTNAME_SLUG BACKUP_ENV_FILE AUTOSTART JAVA` | they belong to the server's identity or have their own command: `mcctl edit` for `MEMORY` and `CPUS`, `mcctl autostart` for `AUTOSTART` |
+| the structural keys `TYPE VERSION MEMORY CPUS EULA HOSTNAME_SLUG BACKUP_ENV_FILE AUTOSTART JAVA VOICE_PORT` | they belong to the server's identity or have their own command: `mcctl edit` for `MEMORY` and `CPUS`, `mcctl autostart` for `AUTOSTART` |
 | the reserved keys `RCON_PORT ENABLE_RCON RCON_PASSWORD_FILE CF_API_KEY_FILE` | `mcctl rcon`, the backup sidecar, `rotate-rcon` and the CurseForge key assume their defaults and files. itzg warns against changing the RCON port. |
 
 ## mcctl motd, icon, resourcepack, autostart
@@ -695,7 +732,8 @@ the old password is unchanged and nothing is restarted.
 
 Players connect to one public port, **25565**, which belongs to `mc-router`. It reads the host name in the Minecraft handshake
 (`play.mc.example.net`) and forwards the connection to the game container whose `mc-router.host` label is that name; a bare IP address or
-an unknown name matches nothing. Game containers publish no port. The router and the egress guard are one compose project,
+an unknown name matches nothing. Game containers publish no port, except the UDP port of voice chat when `mcctl voice` sets one (see
+[mcctl voice](#mcctl-voice)). The router and the egress guard are one compose project,
 `mcctl-stack`, defined in `templates/stack.compose.yml` and started by `mcctl up`. Game servers are separate projects (`mcctl-NAME`)
 that join the network `mcctl_game`.
 
@@ -722,6 +760,9 @@ bridge traffic passes through iptables. The backup sidecar of a server does not 
 with `network_mode: "service:mc"`, in the network namespace of its server, so it reaches RCON over `localhost`, has no address of its own
 and publishes nothing. (Both points, the drop and the shared namespace, are covered by tests against fakes and not yet checked on a real
 Docker host.)
+
+The guard also gets the voice chat ports of all servers in `MCCTL_VOICE_PORTS` (set by `mcctl`, one number per server that has
+`VOICE_PORT`): each one gets a rule in `MCCTL-INGRESS` that limits its packets per source (see [mcctl voice](#mcctl-voice)).
 
 New connections from the game network to the host itself (SSH, anything bound to `0.0.0.0`, the bridge gateway) are dropped by a rule
 in `INPUT`. Traffic to the public internet is not touched. The chain is flushed and refilled whenever the guard container starts, so a
