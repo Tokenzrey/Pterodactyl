@@ -61,7 +61,7 @@ assert_eq 'services:
       - "'"$SB"'/sftp-users.conf:/etc/sftp/users.conf:ro"
       - "'"$SB"'/servers/s1/data:/home/s1/s1"
     cap_drop: [ALL]
-    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE, SYS_CHROOT]
+    cap_add: [CHOWN, SETGID, SETUID, FOWNER, DAC_OVERRIDE, SYS_CHROOT]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m
     pids_limit: 128' "$(body)" "the whole generated file, comments aside"

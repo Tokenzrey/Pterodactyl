@@ -20,7 +20,7 @@ services:
 {{USERS_MOUNT}}
 {{SERVER_MOUNTS}}
     cap_drop: [ALL]
-    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE, SYS_CHROOT]   # sshd needs SYS_CHROOT for the chroot of every user
+    cap_add: [CHOWN, SETGID, SETUID, FOWNER, DAC_OVERRIDE, SYS_CHROOT]   # sshd needs SYS_CHROOT for the chroot of every user; FOWNER: the image chmods the keys file it owns, which is not root's
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m
     pids_limit: 128

@@ -117,7 +117,7 @@ stack_violations() {
 
 # sftp_violations FILE...: lines of the SFTP compose template (templates/sftp.compose.yml) or of the file generated from it that go
 # beyond its stated exceptions. It publishes one port, "ADDRESS:2222:22" (ADDRESS: 127.0.0.1, 0.0.0.0 or the placeholder
-# {{SFTP_BIND}}), adds the capabilities CHOWN, SETGID, SETUID, DAC_OVERRIDE and SYS_CHROOT (sshd's chroot), and nothing else. Flagged:
+# {{SFTP_BIND}}), adds the capabilities CHOWN, SETGID, SETUID, FOWNER, DAC_OVERRIDE and SYS_CHROOT (sshd's chroot), and nothing else. Flagged:
 # a second or another published port; privileged, pid, userns_mode, devices or network_mode; any other cap_add; the Docker socket;
 # a credential written as a plain value (a key or KEY= entry named *PASSWORD, *PASSWD, *SECRET, *TOKEN or *_KEY; the *_FILE form is
 # fine); and a $ anywhere, comments too (a $ in a generated compose file is a variable for compose to fill in).
@@ -132,7 +132,7 @@ sftp_violations() {
         { inports = 0 }
         /^[ \t]*ports:/ { inports = 1; if ($0 !~ /^[ \t]*ports:[ \t]*(#.*)?$/) bad() }
         /^[ \t]*(privileged|pid|userns_mode|devices|network_mode):/ { bad() }
-        /^[ \t]*cap_add:/ && $0 !~ /^[ \t]*cap_add:[ \t]*\[[ \t]*CHOWN,[ \t]*SETGID,[ \t]*SETUID,[ \t]*DAC_OVERRIDE,[ \t]*SYS_CHROOT[ \t]*\][ \t]*(#.*)?$/ { bad() }
+        /^[ \t]*cap_add:/ && $0 !~ /^[ \t]*cap_add:[ \t]*\[[ \t]*CHOWN,[ \t]*SETGID,[ \t]*SETUID,[ \t]*FOWNER,[ \t]*DAC_OVERRIDE,[ \t]*SYS_CHROOT[ \t]*\][ \t]*(#.*)?$/ { bad() }
         /docker\.sock/ { bad() }
         /^[ \t]*(- *)?"?[A-Za-z0-9_]*(PASSWORD|PASSWD|SECRET|TOKEN|_KEY)(:|=)/ { bad() }' "$@"
 }
@@ -329,8 +329,8 @@ cat >"$FXD/sftp_bad.yaml" <<'EOF'
 ports:
   - "127.0.0.1:2222:22"
   - "0.0.0.0:2222:22"
-cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE, SYS_CHROOT]
-cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE, SYS_CHROOT, NET_ADMIN]
+cap_add: [CHOWN, SETGID, SETUID, FOWNER, DAC_OVERRIDE, SYS_CHROOT]
+cap_add: [CHOWN, SETGID, SETUID, FOWNER, DAC_OVERRIDE, SYS_CHROOT, NET_ADMIN]
 ports: ["2222:22"]
 privileged: true
 network_mode: host
@@ -344,7 +344,7 @@ ports:
   - "0.0.0.0:22:22"
 EOF
 assert_eq "3,5,6,7,8,9,10,11,12,16" "$(cd "$FXD" && sftp_violations sftp_bad.yaml | lines)" "sftp_violations flags a second or other port, another cap_add, host access, the socket, a \$ (comments too) and a plain credential, not *_FILE or an ordinary mount"
-printf '%s\n' 'services:' '  sftp:' '    ports:' '      - "{{SFTP_BIND}}:2222:22"   # the placeholder' '    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE, SYS_CHROOT]' '# no variable here' >"$FXD/sftp_ok.yaml"
+printf '%s\n' 'services:' '  sftp:' '    ports:' '      - "{{SFTP_BIND}}:2222:22"   # the placeholder' '    cap_add: [CHOWN, SETGID, SETUID, FOWNER, DAC_OVERRIDE, SYS_CHROOT]' '# no variable here' >"$FXD/sftp_ok.yaml"
 printf '%s\n' 'ports:' '  - "0.0.0.0:2222:22"' >"$FXD/sftp_pub.yaml"
 assert_eq "" "$(cd "$FXD" && sftp_violations sftp_ok.yaml sftp_pub.yaml | lines)" "sftp_violations passes the placeholder, 127.0.0.1 and 0.0.0.0 as the one port (the count starts again in each file)"
 rm -rf -- "$FXD"
