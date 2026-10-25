@@ -21,17 +21,26 @@ ssh_cmd=(ssh)
 [[ -n $key ]] && ssh_cmd+=(-i "$key")
 code_paths=(mcctl lib templates tests docs config/mcctl.env.example)
 
-echo "== sending the code to $target:$remote"
+# The folder is the account's own home from the password database, not $HOME: a login can carry a $HOME that is not that account's.
+remote_home=$("${ssh_cmd[@]}" "$target" 'getent passwd "$(id -un)" | cut -d: -f6')
+case $remote_home in
+    /*) ;;
+    *) echo "cannot read the home folder of $target (got '$remote_home')" >&2; exit 1 ;;
+esac
+dest=$remote_home/$remote
+dest_q=$(printf '%q' "$dest")
+
+echo "== sending the code to $target:$dest"
 tar -C "$here" \
     --exclude=./config/mcctl.env --exclude=./secrets --exclude=./servers --exclude=./trash --exclude=./backups \
     --exclude=./sftp-keys --exclude=./sftp-users.conf --exclude=./sftp.compose.yml --exclude=./.git \
     -cf - . \
-    | "${ssh_cmd[@]}" "$target" "mkdir -p \"\$HOME/$remote\" && tar -C \"\$HOME/$remote\" -xf - && chmod +x \"\$HOME/$remote/mcctl\""
+    | "${ssh_cmd[@]}" "$target" "mkdir -p $dest_q && tar -C $dest_q -xf - && chmod +x $dest_q/mcctl"
 
 # One checksum over every code file, computed the same way on both sides (sorted in the C locale, paths relative to the code root).
 sum_cmd='find '"${code_paths[*]}"' -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum'
 local_sum=$(cd "$here" && eval "$sum_cmd")
-remote_sum=$("${ssh_cmd[@]}" "$target" "cd \"\$HOME/$remote\" && $sum_cmd")
+remote_sum=$("${ssh_cmd[@]}" "$target" "cd $dest_q && $sum_cmd")
 
 echo "== checksum here:   $local_sum"
 echo "== checksum there:  $remote_sum"

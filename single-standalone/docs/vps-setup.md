@@ -357,7 +357,18 @@ whether they are in sync:
 bash tools/sync-vps.sh deploy@203.0.113.7 ~/.ssh/id_ed25519_vps mcctl
 ```
 
-Run it from WSL or Git Bash, in the checkout of this repository. Then, on the VPS:
+Run it from WSL or Git Bash, in the checkout of this repository. The code goes to the home folder of the account in the password database,
+not to `$HOME` of the login session, so a session with a wrong `$HOME` still lands in the right place.
+
+To run one mcctl command on the VPS from your machine, in its code folder, with its exit status printed here:
+
+```bash
+bash tools/vps-mcctl.sh deploy@203.0.113.7 ~/.ssh/id_ed25519_vps mcctl status deceased
+bash tools/vps-mcctl.sh deploy@203.0.113.7 ~/.ssh/id_ed25519_vps mcctl edit deceased --memory 7G --yes
+```
+
+Each argument reaches mcctl as one word. Add `--yes` yourself: without it, a command that asks for confirmation refuses when there is
+no terminal and changes nothing. Then, on the VPS:
 
 ```bash
 cd ~/mcctl
