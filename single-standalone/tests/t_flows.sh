@@ -350,7 +350,7 @@ rm -f "$FAKE_STATE/docker.compose.ps.running.mc-router"
 run up;                                                assert_eq 3 "$RC" "up while another mc-router holds the port: refused (EX_PREFLIGHT)"
 assert_contains "$OUT" "pid=4242" "and the listener is named"
 SS='ss -H -ltnp ( sport = :25565 )' NET='docker network ls -q --filter name=^mcctl_game$'
-SFU="docker compose -p mcctl-sftp -f $SB/sftp.compose.yml up -d" SFD="docker compose -p mcctl-sftp -f $SB/sftp.compose.yml down"   # SFTP follows the router stack up and down
+SFU="docker compose -p mcctl-sftp -f $SB/sftp.compose.yml up -d --force-recreate sftp" SFD="docker compose -p mcctl-sftp -f $SB/sftp.compose.yml down"   # SFTP follows the router stack up and down
 INS='docker network inspect --format {{range .IPAM.Config}}{{.Subnet}} {{end}} mcctl_game'
 STK="docker compose -p mcctl-stack -f $SB/templates/stack.compose.yml"
 assert_eq "$SS

@@ -14,7 +14,7 @@ load_config 2>/dev/null
 
 STACK=$REPO/templates/stack.compose.yml
 SBSTACK=$SB/templates/stack.compose.yml   # the copy `m` runs against
-SFTPUP="docker compose -p mcctl-sftp -f $SB/sftp.compose.yml up -d"       # up and down start and stop the SFTP stack after / before the router
+SFTPUP="docker compose -p mcctl-sftp -f $SB/sftp.compose.yml up -d --force-recreate sftp"       # up and down start and stop the SFTP stack after / before the router
 SFTPDOWN="docker compose -p mcctl-sftp -f $SB/sftp.compose.yml down"
 reset() { : >"$FAKE_STATE/calls.log"; T_UNK=0; rm -f "$FAKE_STATE"/ss.* "$FAKE_STATE"/docker.network.* "$FAKE_STATE"/docker.compose.*; }
 reset_ipt() { rm -f "$FAKE_STATE"/iptables.*; : >"$FAKE_STATE/calls.log"; T_UNK=0; }

@@ -81,21 +81,36 @@ sftp_render() {
 # _sftp_running: 0 when the SFTP container is running
 _sftp_running() { [[ -n $(sftp_dc ps -q --status running sftp 2>/dev/null) ]]; }
 
-# sftp_repair: render sftp.compose.yml again and, when the SFTP container is running, recreate it so that it reads the new users and
-# keys. Every change to SFTP ends here; `mcctl sftp repair` runs it by hand after the cause of a failure was fixed.
-sftp_repair() {
-    sftp_render || return
-    _sftp_running || return 0
-    sftp_dc up -d --force-recreate sftp >/dev/null || { err "docker compose could not recreate the SFTP container (see above)"; return "$EX_FAIL"; }
-    info "SFTP container recreated; SFTP users are disconnected for a few seconds"
+# _sftp_refresh: make a running SFTP container read the current users and keys. With at least one user it is recreated; with none it is
+# stopped (atmoz/sftp exits when it has no user). A stopped SFTP is not started here: `mcctl up` starts it (sftp_up), and says so.
+_sftp_refresh() {
+    if ! _sftp_running; then
+        [[ -s $(_sftp_users_file) ]] && info "SFTP is not running, so the change takes effect at its next start: mcctl up starts it"
+        return 0
+    fi
+    if [[ -s $(_sftp_users_file) ]]; then
+        sftp_dc up -d --force-recreate sftp >/dev/null || { err "docker compose could not recreate the SFTP container (see above)"; return "$EX_FAIL"; }
+        info "SFTP container recreated; SFTP users are disconnected for a few seconds"
+    else
+        sftp_dc stop sftp >/dev/null || { err "docker compose could not stop the SFTP container (see above)"; return "$EX_FAIL"; }
+        info "SFTP container stopped: no SFTP user is left"
+    fi
 }
 
-# sftp_up: start the SFTP stack (rendering its file first) when there is at least one user; sftp_down: stop it. For mcctl up and
-# mcctl down. With no user the container is not started: atmoz/sftp exits at once when users.conf is empty (its entrypoint's grep
-# has no line to copy and set -e stops it).
+# sftp_repair: render sftp.compose.yml again and make the SFTP container read it (_sftp_refresh). Every change to SFTP ends here;
+# `mcctl sftp repair` runs it by hand after the cause of a failure was fixed.
+sftp_repair() {
+    sftp_render || return
+    _sftp_refresh
+}
+
+# sftp_up: start the SFTP stack for mcctl up (rendering its file first), recreated so that a failed earlier start is not kept. With no
+# user it is not started: atmoz/sftp exits at once when users.conf is empty (its entrypoint's grep has no line to copy and set -e stops
+# it). sftp_down: stop it, for mcctl down.
 sftp_up() {
     sftp_render || return
-    if [[ -s $(_sftp_users_file) ]]; then sftp_dc up -d
+    if [[ -s $(_sftp_users_file) ]]; then
+        sftp_dc up -d --force-recreate sftp || { err "docker compose could not start the SFTP container (see above)"; return "$EX_FAIL"; }
     else info "SFTP not started: no user yet (a server created with SFTP access adds one)"; fi
 }
 sftp_down() { sftp_render && sftp_dc down; }

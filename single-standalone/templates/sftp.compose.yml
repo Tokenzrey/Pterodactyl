@@ -19,8 +19,13 @@ services:
     volumes:
 {{USERS_MOUNT}}
 {{SERVER_MOUNTS}}
+      # the host keys live in a volume: a recreated container keeps them, so clients do not see the server's key change
+      - mcctl-sftp-hostkeys:/etc/ssh
     cap_drop: [ALL]
     cap_add: [CHOWN, SETGID, SETUID, FOWNER, DAC_OVERRIDE, SYS_CHROOT]   # sshd needs SYS_CHROOT for the chroot of every user; FOWNER: the image chmods the keys file it owns, which is not root's
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m
     pids_limit: 128
+
+volumes:
+  mcctl-sftp-hostkeys:

@@ -60,11 +60,15 @@ assert_eq 'services:
     volumes:
       - "'"$SB"'/sftp-users.conf:/etc/sftp/users.conf:ro"
       - "'"$SB"'/servers/s1/data:/home/s1/s1"
+      - mcctl-sftp-hostkeys:/etc/ssh
     cap_drop: [ALL]
     cap_add: [CHOWN, SETGID, SETUID, FOWNER, DAC_OVERRIDE, SYS_CHROOT]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m
-    pids_limit: 128' "$(body)" "the whole generated file, comments aside"
+    pids_limit: 128
+
+volumes:
+  mcctl-sftp-hostkeys:' "$(body)" "the whole generated file, comments aside"
 assert_mode "$COMPOSE" 644 "sftp.compose.yml is mode 644"
 assert_eq "" "$(find "$SB" -maxdepth 1 -name 'sftp.compose.yml.*')" "and no temporary file is left beside it"
 
@@ -281,7 +285,7 @@ sftp_add_user s1 2>/dev/null; assert_eq "$EX_FAIL" "$?" "sftp_add_user when the 
 rm -f "$FAKE_STATE/docker.compose.up.rc"
 clean s1
 
-echo "delete recreates a running SFTP container"
+echo "delete of the last SFTP user stops a running SFTP container (it would restart-loop with no user)"
 reset; clean s1
 m create c2 --type PAPER --accept-eula
 assert_eq 0 "$RC" "create c2 succeeds"
@@ -289,9 +293,10 @@ sftp_running
 reset
 m --yes delete c2
 assert_eq 0 "$RC" "delete c2 succeeds"
-assert_eq 1 "$(count_calls "$UPCALL")" "delete ran docker compose -p mcctl-sftp up -d --force-recreate sftp once"
+assert_eq 1 "$(count_calls "docker compose -p mcctl-sftp -f $COMPOSE stop sftp")" "delete ran docker compose -p mcctl-sftp stop sftp once"
+assert_eq 0 "$(count_calls "$UPCALL")" "and no recreate, since no user is left"
 assert_contains "$(calls)" "$(sftp_ps_call)
-$UPCALL" "right after it asked"
+docker compose -p mcctl-sftp -f $COMPOSE stop sftp" "right after it asked"
 assert_no_line "$(m_data c2)" "and the data mount of c2 is gone from the file the container was recreated from"
 rm -f "$FAKE_STATE/docker.compose.ps.running.sftp"
 
@@ -348,7 +353,7 @@ reset
 m up
 assert_eq 0 "$RC" "up succeeds"
 assert_eq "docker compose -p mcctl-stack -f $SB/templates/stack.compose.yml up -d --wait
-docker compose -p mcctl-sftp -f $COMPOSE up -d" "$(calls | grep ' up ')" "up: the router stack first, then mcctl-sftp"
+docker compose -p mcctl-sftp -f $COMPOSE up -d --force-recreate sftp" "$(calls | grep ' up ')" "up: the router stack first, then mcctl-sftp, recreated"
 assert_line "$(m_data s1)" "sftp.compose.yml was rendered first (it holds the mount of s1)"
 assert_contains "$OUT" "SFTP up on 127.0.0.1:2222" "and the message names the address"
 reset
