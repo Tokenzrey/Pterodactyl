@@ -6,6 +6,7 @@
 # fakebin/curl plays Cloudflare and keeps its records (dns_records in tests/lib.sh reads them).
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 sandbox
@@ -23,7 +24,6 @@ tags() {
         -e 's|^docker ps -a --filter label=mcctl\.hostname=([^ ]*) --format .*$|owner? \1|' \
         -e 's|^docker ps -a --filter label=mcctl\.managed=true --format .*$|list|' \
         -e 's|^docker inspect --format .* (mc-[a-z0-9-]+)$|inspect \1|' \
-        -e "s|^docker compose -p mcctl-stack -f $SB/templates/stack.compose.yml kill -s HUP mc-router\$|reload|" \
         -e "s|^docker compose -p mcctl-sftp -f $SB/sftp.compose.yml ps -q --status running sftp\$|sftp?|" \
         -e 's|^curl .* -X GET .*/dns_records\?name=(.*)$|dns? \1|' \
         -e 's|^curl .* -X GET .*/dns_records\?comment\.exact=mcctl%20name%3D(.*)$|dns-of? \1|' \
@@ -31,7 +31,11 @@ tags() {
         -e 's|^curl .* -X DELETE .*/dns_records/.*$|dns-|' \
         -e 's|^docker stats .*$|stats|' \
         -e 's|^docker logs --tail [0-9][0-9]* mc-[a-z0-9-]*$|logs|' \
-        -e 's|^docker logs --tail [0-9][0-9]* -f mc-[a-z0-9-]*$|logs -f|' <<<"$(calls)"
+        -e 's|^docker logs --tail [0-9][0-9]* -f mc-[a-z0-9-]*$|logs -f|' \
+        -e 's|^docker run --rm .* -v [^ ]*/data:/m:rw .* sh -c chown .*$|give data|' \
+        -e 's|^docker run --rm .* -v [^ ]*\.TMP:/m:rw .* sh -c chown .*$|give secret|' \
+        -e 's|^docker run --rm .* -v [^ ]*:/m:ro .* tar -czf .*$|archive|' \
+        -e 's|^docker run --rm .* -v [^ ]*:/m:rw .* rm -rf -- /m/data.*$|clear|' <<<"$(calls)"
 }
 ALL=""   # every output of the flow, to search for the secret
 run() { m "$@"; ALL+=$OUT$'\n'; }
@@ -63,9 +67,7 @@ run --yes modpack f1 update --clean --timeout 5;        assert_eq 0 "$RC" "modpa
 assert_eq "name? f1
 snapshot
 compose[f1] up -d --force-recreate
-reload
-compose[f1] up -d --force-recreate
-reload" "$(tags | sed -E 's/^docker run --rm .*/snapshot/' | grep -E '^(name\?|snapshot|compose|reload)')" "E13, ordered: the snapshot, then the recreate with REMOVE_OLD_MODS, the health wait, then the recreate without it (two recreates, each followed by the router signal)"
+compose[f1] up -d --force-recreate" "$(tags | sed -E 's/^docker run --rm .*/snapshot/' | grep -E '^(name\?|snapshot|compose|reload)')" "E13, ordered: the snapshot, then the recreate with REMOVE_OLD_MODS, the health wait, then the recreate without it (two recreates, each followed by the router signal)"
 assert_contains "$(<"$FAKE_STATE/docker.compose.recreate.1.yml")" 'REMOVE_OLD_MODS: "TRUE"' "the first recreate holds the flag"
 assert_eq 0 "$(grep -c REMOVE_OLD_MODS "$FAKE_STATE/docker.compose.recreate.2.yml")" "the second recreate does not"
 assert_eq 0 "$(grep -c REMOVE_OLD_MODS "$SB/servers/f1/server.env" "$SB/servers/f1/compose.yaml" | awk -F: '{s+=$2} END {print s+0}')" "afterwards server.env and compose.yaml do not hold it"
@@ -97,9 +99,10 @@ assert_eq "name? s1
 host? s1
 dns? s1.mc.example.net
 dns+ s1.mc.example.net
+give data
+give secret
 sftp?
 compose[s1] create
-reload
 list
 name? s1
 compose[s1] start
@@ -113,12 +116,13 @@ name? s1
 compose[s1] kill
 name? s1
 compose[s1] stop
+archive
 dns-of? s1
 dns-
 compose[s1] rm -s -f
-reload
 sftp?
-list" "$(tags)" "the ordered call log: checks, DNS, create (asking whether SFTP runs), the router signal, list, every command asks Docker first and runs one compose verb, delete stops, deletes the DNS record, removes the containers, signals the router and updates SFTP"
+clear
+list" "$(tags)" "the ordered call log: checks, DNS, create (the game's user is given data and the secret, then asking whether SFTP runs), list, every command asks Docker first and runs one compose verb, delete stops, archives, deletes the DNS record, removes the containers, updates SFTP and clears the game's data"
 assert_eq "" "$(leftovers)" "and the delete left no folder and no secret"
 assert_eq "" "$(dns_records)" "and no DNS record"
 assert_eq 32 "${#pw1}" "(the password this flow looks for is real)"
@@ -140,9 +144,10 @@ assert_eq "name? a
 host? play
 dns? play.mc.example.net
 dns+ play.mc.example.net
+give data
+give secret
 sftp?
 compose[a] create
-reload
 name? b
 host? play
 owner? play
@@ -150,9 +155,10 @@ name? b
 host? play2
 dns? play2.mc.example.net
 dns+ play2.mc.example.net
+give data
+give secret
 sftp?
 compose[b] create
-reload
 list" "$(tags)" "the ordered call log: the refused create never reaches Cloudflare or compose"
 assert_eq "play.mc.example.net mcctl name=a
 play2.mc.example.net mcctl name=b" "$(dns_records)" "one DNS record each, named after its host and commented with its server"
@@ -178,19 +184,23 @@ assert_eq "name? s1
 host? s1
 dns? s1.mc.example.net
 dns+ s1.mc.example.net
+give data
+give secret
 sftp?
 compose[s1] create
 compose[s1] rm -s -f
 dns? s1.mc.example.net
 dns-
 sftp?
+clear
 name? s1
 host? s1
 dns? s1.mc.example.net
 dns+ s1.mc.example.net
+give data
+give secret
 sftp?
-compose[s1] create
-reload" "$(tags)" "the ordered call log: DNS, create, clean-up in reverse, then a clean retry"
+compose[s1] create" "$(tags)" "the ordered call log: DNS, create, clean-up in reverse (containers, record, folder), then a clean retry"
 assert_not_contains "$ALL$(calls)" "$(<"$SB/secrets/rcon-s1")" "the password is in no output and not in the call log"
 
 echo "flow: a CurseForge pack, with and without the operator's API key"
@@ -212,18 +222,20 @@ assert_eq "name? atm
 host? atm
 dns? atm.mc.example.net
 dns+ atm.mc.example.net
+give data
+give secret
 sftp?
 compose[atm] create
-reload
 name? atm
 compose[atm] start
 name? atm
 compose[atm] stop
+archive
 dns-of? atm
 dns-
 compose[atm] rm -s -f
-reload
-sftp?" "$(tags)" "the ordered call log: the refused create never reaches Docker or Cloudflare; create, start, delete"
+sftp?
+clear" "$(tags)" "the ordered call log: the refused create never reaches Docker or Cloudflare; create, start, delete"
 assert_eq "secrets/curseforge_api_key" "$(leftovers)" "delete removes the server and its RCON secret, and leaves the operator's key"
 assert_not_contains "$ALL$(calls)" "$CANARY" "the CurseForge key is in no output and not in the call log (E4)"
 
@@ -252,9 +264,10 @@ assert_eq "name? s1
 host? s1
 dns? s1.mc.example.net
 dns+ s1.mc.example.net
+give data
+give secret
 sftp?
 compose[s1] create
-reload
 name? s1
 inspect mc-s1
 name? s1
@@ -279,14 +292,16 @@ inspect mc-s1
 docker exec -i mc-s1 rcon-cli say hi
 name? s1
 inspect mc-s1
+give secret
 compose[s1] restart
 name? s1
 compose[s1] stop
+archive
 dns-of? s1
 dns-
 compose[s1] rm -s -f
-reload
-sftp?" "$(tags)" "the ordered call log: the console and the refused ban never reach rcon-cli; each command asks, checks, sends once"
+sftp?
+clear" "$(tags)" "the ordered call log: the console and the refused ban never reach rcon-cli; each command asks, checks, sends once; rotate-rcon gives the new secret to the game's user before the restart"
 assert_eq "secrets/curseforge_api_key" "$(leftovers)" "and the delete left no folder and no RCON secret (the operator's CurseForge key of the flow above stays)"
 assert_ne() { if [[ $1 != "$2" ]]; then pass "$3"; else fail "$3" "both are '$1'"; fi; }
 assert_ne "$old" "$new" "rotate-rcon gave the server a different password"
@@ -316,20 +331,23 @@ assert_eq "name? s7
 host? seven
 dns? seven.mc.example.net
 dns+ seven.mc.example.net
+give data
+give secret
 sftp?
 compose[s7] create
-reload
 name? s7
 compose[s7] stop
+archive
 dns-of? s7
 dns-
 name? s7
 compose[s7] stop
+archive
 dns-of? s7
 dns-
 compose[s7] rm -s -f
-reload
-sftp?" "$(tags)" "the ordered call log: create; the failed delete stops after the DNS DELETE; the second one deletes the record, then the containers, then signals the router"
+sftp?
+clear" "$(tags)" "the ordered call log: create; the failed delete archives, then stops after the DNS DELETE; the second one archives again, deletes the record, then the containers, then clears the game's data"
 assert_eq "level" "$(tar -xzOf "$(ls -t "$SB"/trash/s7-*.tar.gz | head -n 1)" data/world/level.dat)" "the world is in trash/s7-<UTC>.tar.gz"
 assert_not_contains "$ALL$(calls)" "$CF_TOKEN" "the Cloudflare token is in no output and not in the call log (E4)"
 
@@ -389,8 +407,7 @@ assert_contains "$(<"$SB/servers/s1/server.env")" "MEMORY=6G" "server.env has th
 assert_eq "name? s1
 inspect mc-s1
 docker exec -i mc-s1 rcon-cli list
-compose[s1] up -d --force-recreate
-reload" "$(tags)" "the ordered call log from inspect to HUP: name check, inspect, rcon list, compose up -d --force-recreate (no service name), reload"
+compose[s1] up -d --force-recreate" "$(tags)" "the ordered call log from inspect to the recreate: name check, inspect, rcon list, compose up -d --force-recreate (no service name)"
 rm -f "$FAKE_STATE/docker.inspect" "$FAKE_STATE/docker.exec"
 fake_gone s1 s1
 rm -rf "$SB/servers/s1" "$SB/secrets/rcon-s1"
@@ -511,8 +528,7 @@ assert_eq "name? s1
 inspect mc-s1
 inspect mc-s1
 docker exec -i mc-s1 rcon-cli list
-compose[s1] up -d --force-recreate
-reload" "$(tags)" "the ordered call log of apply: name, label, state, list, up -d --force-recreate (no service name), reload"
+compose[s1] up -d --force-recreate" "$(tags)" "the ordered call log of apply: name, label, state, list, up -d --force-recreate (no service name)"
 run_as running "$(config_hash s1)"             # the recreated container carries the new hash
 run status s1;                                 assert_contains "$OUT" "config:    current" "status: current once the container carries the new hash"
 assert_not_contains "$ALL$(calls)" "$CANARY" "the RCON password is in no output and no call (E4)"

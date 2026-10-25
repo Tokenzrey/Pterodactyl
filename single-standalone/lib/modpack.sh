@@ -36,11 +36,18 @@ modpack_env() {
     [[ -z $ver ]] || printf '%s=%s\n' "$verkey" "$ver"
 }
 
-# modpack_require_key: exit EX_PREFLIGHT, nothing touched, unless secrets/curseforge_api_key has a key in it. create and modpack set ask
-# it before a CurseForge pack is written. Only that the file has content is checked: the key is never read into a variable or printed.
+# modpack_require_key: exit EX_PREFLIGHT, nothing touched, unless secrets/curseforge_api_key has a key in it, belongs to the game's user (the
+# server container reads it as that user) and is readable by this one. create and modpack set ask it before a CurseForge pack is written.
+# Only the owner and that the file has content are checked: the key is never read into a variable or printed. mcctl cannot chown this
+# file itself (it is the operator's file, and this user has no root), so a wrong owner is reported with the command that fixes it.
 modpack_require_key() {
-    grep -q '[^[:space:]]' -- "$MCCTL_ROOT/secrets/$CF_KEY_SECRET" 2>/dev/null \
-        || die "a CurseForge pack needs your CurseForge API key in the file $MCCTL_ROOT/secrets/$CF_KEY_SECRET (mode 600, the key alone on one line; see 'mcctl create' in docs/reference.md). Nothing was changed." "$EX_PREFLIGHT"
+    local key=$MCCTL_ROOT/secrets/$CF_KEY_SECRET uid owner
+    uid=$(game_uid) || exit "$EX_PREFLIGHT"
+    grep -q '[^[:space:]]' -- "$key" 2>/dev/null \
+        || die "a CurseForge pack needs your CurseForge API key in the file $key (the key alone on one line, readable by this user; see 'mcctl create' in docs/reference.md). Nothing was changed." "$EX_PREFLIGHT"
+    owner=$(stat -c %u -- "$key") || die "cannot read the owner of $key. Nothing was changed." "$EX_FAIL"
+    [[ $owner == "$uid" ]] \
+        || die "$key belongs to UID $owner, but the server reads it as UID $uid. As root, run: chown $uid:$(id -g) $key && chmod 640 $key (then run this again). Nothing was changed." "$EX_PREFLIGHT"
 }
 
 # ---- the modpack command -----------------------------------------------------------------------------------------------------

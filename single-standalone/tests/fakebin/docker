@@ -58,11 +58,12 @@ printf '%s\n' "$line" >>"$S/calls.log"
 # docker run: its options (with their values), the image, then the command. Replays docker.run.<command> and
 # docker.run.<command>.rc, <command> being the first word after the image; with -i, stdin is kept in run.stdin.<n> (n = 1, 2, ...).
 if [[ ${1-} == run ]]; then
-    shift; keep=0
+    shift; keep=0; vol=""
     while (($#)); do
         case $1 in
             -i|--interactive) keep=1 ;;
-            --network|--user|-v|--volume|-w|--workdir|--cap-drop|--security-opt|--tmpfs|--pids-limit|--memory) shift ;;
+            -v|--volume) vol=${2-}; shift ;;
+            --network|--user|-w|--workdir|--cap-drop|--cap-add|--security-opt|--tmpfs|--pids-limit|--memory) shift ;;
             -*) ;;
             *) break ;;
         esac
@@ -79,6 +80,21 @@ if [[ ${1-} == run ]]; then
                 if ((m == FAIL_AT)); then echo "fake docker: injected failure (FAIL_AT=$FAIL_AT): $line" >&2; exit 1; fi
             fi ;;
     esac
+    # emulated (lib/data.sh _root_docker, mounted at /m): tar, rm and cat run on the mounted host folder, so the sandbox holds what the
+    # helper would have made; a chown is a no-op (the sandbox user cannot chown). Only for a /m mount; the replay files below are for
+    # the data helper (a /data mount) and never answer for these.
+    if [[ $vol =~ ^(.+):/m(:ro|:rw)?$ ]]; then
+        mhost=${BASH_REMATCH[1]}
+        if [[ ${2-} == sh && ${4-} == *chown* ]]; then exit 0; fi
+        case ${2-} in
+            tar|rm|cat)
+                cmd=$2; shift 2; tr=()
+                for t in "$@"; do
+                    case $t in /m) tr+=("$mhost") ;; /m/*) tr+=("$mhost${t#/m}") ;; *) tr+=("$t") ;; esac
+                done
+                exec "$cmd" "${tr[@]}" ;;
+        esac
+    fi
     if ((keep)); then n=1; while [[ -e $S/run.stdin.$n ]]; do n=$((n + 1)); done; cat >"$S/run.stdin.$n"; fi
     key=docker.run; [[ -n ${2-} ]] && key+=.${2//[^A-Za-z0-9_-]/_}
     [[ -f $S/$key.sleep ]] && sleep "$(<"$S/$key.sleep")"   # opt-in (tests/t_worlds.sh): a run that takes N seconds

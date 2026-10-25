@@ -6,6 +6,7 @@
 # acceptance run on a real host (Task 23); here the generated file is checked as text.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/servers.sh"

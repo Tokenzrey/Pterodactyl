@@ -7,6 +7,7 @@
 # MOD_PLATFORM, MODRINTH_MODPACK, MODRINTH_VERSION for Modrinth. If upstream renames one, change lib/modpack.sh and the lines below.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/modpack.sh"
@@ -135,9 +136,10 @@ assert_eq 0 "$RC" "with the key file in place, create succeeds"
 assert_eq "docker ps -a -q --filter label=mcctl.name=cf
 docker ps -a -q --filter label=mcctl.hostname=cf
 $(dns_made cf)
+$(give_line "$SB/servers/cf/data")
+$(give_line "$SB/secrets/rcon-cf.TMP")
 $(sftp_ps_call)
-docker compose -p mcctl-cf -f $SB/servers/cf/compose.yaml create
-$(reload_call)" "$(calls)" "calls: name check, hostname check, the DNS record, is SFTP running, compose create, the router signal"
+docker compose -p mcctl-cf -f $SB/servers/cf/compose.yaml create" "$(calls)" "calls: name check, hostname check, the DNS record, the game's user is given data and the secret, is SFTP running, compose create"
 assert_eq "MOD_PLATFORM=AUTO_CURSEFORGE
 CF_SLUG=all-the-mods-10
 CF_FILE_ID=9190157" "$(<"$SB/servers/cf/modpack.env")" "modpack.env is what modpack_env prints"

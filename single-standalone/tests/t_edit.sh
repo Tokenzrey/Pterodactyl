@@ -4,6 +4,7 @@
 # E7: a failing recreate (FAIL_AT). E12: file modes after a successful edit. Case 15: a failing server.env write (FAIL_MV, fakebin/mv).
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/modpack.sh"
@@ -99,8 +100,7 @@ m --yes edit s1 --memory 6G
 assert_eq 0 "$RC" "0 players with --yes: exit 0"
 assert_eq "$ASKS
 docker exec -i mc-s1 rcon-cli list
-docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml up -d --force-recreate
-$(reload_call)" "$(calls)" "calls: name, inspect, exec list, compose up -d --force-recreate (no service name), reload"
+docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml up -d --force-recreate" "$(calls)" "calls: name, inspect, exec list, compose up -d --force-recreate (no service name)"
 clean s1
 
 echo "5. Running, 2 players"

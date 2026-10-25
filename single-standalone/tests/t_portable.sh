@@ -5,6 +5,7 @@
 # call. The E7 loops are in t_failure.sh, the hostile archives in t_archive.sh, the round trip and the flows in t_flows.sh.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 for _lib in "$REPO"/lib/*.sh; do [[ $_lib == */common.sh ]] || source "$_lib"; done   # the same set, in-process, as mcctl loads
 sandbox
 export MCCTL_DOMAIN=mc.example.net MCCTL_HOME=$REPO
@@ -106,9 +107,9 @@ pw1=$(secret c1); pw0=$(secret s1)
 assert_eq 0 "$(calls | grep -c 'start')" "the clone is created stopped: no start"
 assert_eq 1 "$(calls | grep -c -- '-X POST')" "one DNS record for the clone"
 assert_contains "$(calls)" "compose -p mcctl-c1 -f $SB/servers/c1/compose.yaml create" "compose create of the clone"
-pos_create=$(pos "mcctl-c1 .* create"); pos_post=$(pos "^curl .* -X POST"); pos_hup=$(pos "kill -s HUP")
-[[ $pos_post -lt $pos_create && $pos_create -lt $pos_hup ]] && pass "clone order: DNS, compose create, router" \
-    || fail "clone order: DNS, compose create, router" "POST $pos_post create $pos_create HUP $pos_hup"
+pos_create=$(pos "mcctl-c1 .* create"); pos_post=$(pos "^curl .* -X POST")
+[[ $pos_post -lt $pos_create ]] && pass "clone order: DNS, then compose create (no router signal)" \
+    || fail "clone order: DNS, then compose create" "POST $pos_post create $pos_create"
 run clone s1 c2 --hostname ch2; assert_eq 0 "$RC" "an explicit --hostname"
 assert_eq "HOSTNAME_SLUG=ch2" "$(grep -E '^HOSTNAME_SLUG=' "$SB/servers/c2/server.env")" "and it is in server.env"
 assert_contains "$OUT" "ch2.mc.example.net" "and the players' address"
@@ -157,10 +158,10 @@ mkdir -p "$SB/sftp-keys"; echo "ssh-ed25519 AAAAkey s1" >"$SB/sftp-keys/s1"
 secret_before=$(secret s1); reset
 run --yes rename s1 r1; assert_eq 0 "$RC" "rename s1 r1"
 assert_contains "$OUT" "renamed s1 to r1: r1.mc.example.net, still stopped" "the message"
-p_post=$(pos "^curl .* -X POST"); p_rm=$(pos "mcctl-s1 .* rm -s -f"); p_create=$(pos "mcctl-r1 .* create"); p_hup=$(pos "kill -s HUP"); p_del=$(pos "^curl .* -X DELETE")
-[[ -n $p_post && $p_post -lt $p_rm && $p_rm -lt $p_create && $p_create -lt $p_hup && $p_hup -lt $p_del ]] \
-    && pass "order: new DNS record, containers removed, folder moved, containers made, router told, old DNS record deleted" \
-    || fail "order of the rename steps" "post $p_post rm $p_rm create $p_create hup $p_hup del $p_del"
+p_post=$(pos "^curl .* -X POST"); p_rm=$(pos "mcctl-s1 .* rm -s -f"); p_create=$(pos "mcctl-r1 .* create"); p_del=$(pos "^curl .* -X DELETE")
+[[ -n $p_post && $p_post -lt $p_rm && $p_rm -lt $p_create && $p_create -lt $p_del ]] \
+    && pass "order: new DNS record, containers removed, folder moved, containers made, old DNS record deleted (no router signal)" \
+    || fail "order of the rename steps" "post $p_post rm $p_rm create $p_create del $p_del"
 assert_eq 0 "$(calls | grep -c 'mcctl-s1 .* stop')" "a stopped server is not stopped again"
 assert_eq 0 "$(calls | grep -c 'mcctl-r1 .* start')" "and it is not started (it was stopped)"
 assert_no_file "$SB/servers/s1" "the old folder is gone"

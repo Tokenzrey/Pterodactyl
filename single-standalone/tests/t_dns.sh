@@ -3,6 +3,7 @@
 # functions doing nothing, and the router published on 127.0.0.1 only. MCCTL_DNS=on is what t_servers.sh and t_cloudflare.sh cover.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/modpack.sh"

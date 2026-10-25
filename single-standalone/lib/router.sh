@@ -96,5 +96,5 @@ cmd_down() {
     info "router stopped. The game servers, the network $GAME_NETWORK and the egress rules are untouched: 'mcctl up' starts the router again"
 }
 
-# router_reload: tell mc-router to re-read its routes (after create and delete change the labels)
-router_reload() { stack_dc kill -s HUP mc-router >/dev/null; }
+# Nothing is sent to mc-router after a server changes: it follows Docker's events and adds or removes a route when a container starts or
+# stops. Never send it SIGHUP: its reload panics (RoutesConfigLoader.isEnabled), and the router stays down until someone starts it again.

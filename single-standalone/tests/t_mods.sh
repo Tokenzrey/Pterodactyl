@@ -4,6 +4,7 @@
 # Docker is the fake: each test says which calls it expects, in order, and the flows in t_flows.sh assert the same for a whole run.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/mods.sh"

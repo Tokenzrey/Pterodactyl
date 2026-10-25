@@ -5,6 +5,7 @@
 # Replies come from the docker.exec fake, ops from docker.run.cat.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 for f in "$REPO"/lib/*.sh; do [[ $f == */common.sh ]] || source "$f"; done
 sandbox
 export MCCTL_DOMAIN=mc.example.net

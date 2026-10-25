@@ -6,6 +6,7 @@
 # fake logs are `docker run ... sh -c SCRIPT`; tags() turns the call log into short words for the ordered assertions.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 for f in "$REPO"/lib/*.sh; do [[ $f == */common.sh ]] || source "$f"; done
 sandbox
 export MCCTL_DOMAIN=mc.example.net

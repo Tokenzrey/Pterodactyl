@@ -5,6 +5,7 @@
 # before ANY Docker call. The fake docker is stateless: `up` writes the canned answers for "this container exists, in this state".
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/modpack.sh"
@@ -249,7 +250,8 @@ assert_ne "$old" "$new" "the password is a different one"
 [[ $new =~ ^[A-Za-z0-9]{32}$ ]] && pass "32 letters and digits" || fail "32 letters and digits" "$new"
 assert_mode "$SB/secrets/rcon-s1" 600 "mode 600"
 assert_eq "$ASKS
-docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml restart" "$(calls)" "calls: ask Docker, then restart both containers so that they read it"
+$(give_line "$SB/secrets/rcon-s1.TMP")
+docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml restart" "$(calls)" "calls: ask Docker, the new secret is given to the game's user, then restart both containers so that they read it"
 assert_not_contains "$OUT$(calls)" "$old" "the old password is in no output and not in the call log (E4)"
 assert_not_contains "$OUT$(calls)" "$new" "nor is the new one"
 assert_eq "rcon-s1" "$(cd "$SB" && ls secrets | grep -vx cloudflare_token | paste -sd, -)" "and no temporary file is left beside it"
@@ -265,7 +267,8 @@ up s1 exited; before=$(<"$SB/secrets/rcon-s1"); reset
 m rotate-rcon s1
 assert_eq 0 "$RC" "a stopped server needs no confirmation"
 assert_ne "$before" "$(<"$SB/secrets/rcon-s1")" "it gets a new password"
-assert_eq "$ASKS" "$(calls)" "and is not restarted"
+assert_eq "$ASKS
+$(give_line "$SB/secrets/rcon-s1.TMP")" "$(calls)" "and is not restarted (its secret is given to the game's user)"
 assert_contains "$OUT" "next starts" "the message says when it applies"
 up d exited; mkdir "$SB/secrets/rcon-d"; reset
 m rotate-rcon d

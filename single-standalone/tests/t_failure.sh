@@ -71,8 +71,14 @@ after_failure() {
     [[ $RC == 1 || $RC == 4 ]] && pass "$l: exit $RC (EX_FAIL or EX_REFUSED)" || fail "$l: exit is EX_FAIL or EX_REFUSED" "rc=$RC $OUT"
     [[ -n $call ]] && pass "$l: the injected failure hit: ${call%% https*}" || fail "$l: the injected failure hit a call" "$(calls)"
     world
-    assert_eq "$WC" "$WF" "$l: no container without its folder, no folder without its container"
-    assert_eq "$WF" "$WS" "$l: the RCON secret goes with the folder"
+    if [[ $l == delete* && $call == *"rm -rf -- /m/data"* ]]; then
+        # the last steps of delete: the containers are gone, then the helper could not clear data/. What is left is the folder, its
+        # secret and the archive (which holds the world); the next delete removes the folder
+        assert_eq "0 1 1" "$WC $WF $WS" "$l: the containers are gone; the folder, the secret and the archive are left, and the next delete finishes"
+    else
+        assert_eq "$WC" "$WF" "$l: no container without its folder, no folder without its container"
+        assert_eq "$WF" "$WS" "$l: the RCON secret goes with the folder"
+    fi
     ((WD <= WC)) && pass "$l: no DNS record points at nothing (records $WD, containers $WC)" \
         || fail "$l: no DNS record without its container" "records $WD, containers $WC"
     if [[ $l == delete* && $call == curl* ]]; then
@@ -86,7 +92,7 @@ clean
 FAIL_AT=0 run "${CREATE[@]}"
 assert_eq 0 "$RC" "create, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 3 "$total" "create makes 3 mutating calls (DNS POST, compose create, router signal)"
+assert_eq 4 "$total" "create makes 4 mutating calls (DNS POST, the chown of data/, the chown of the RCON secret, compose create)"
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     clean
     FAIL_AT=$FAIL_AT_N run "${CREATE[@]}"
@@ -104,23 +110,22 @@ created
 FAIL_AT=0 run --yes delete "$N"
 assert_eq 0 "$RC" "delete, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 4 "$total" "delete makes 4 mutating calls"
-assert_eq "stop DELETE rm kill" "$(for i in 1 2 3 4; do nth_mutation "$i" | grep -oE ' (stop|rm|kill)( |$)|-X DELETE' | head -n 1 | tr -d ' ' | sed 's/^-XDELETE$/DELETE/'; done | paste -sd ' ' -)" \
-    "in this order: compose stop, the DNS DELETE (before the containers), compose rm, the router signal"
+assert_eq 5 "$total" "delete makes 5 mutating calls (stop, the archive, the DNS DELETE, compose rm, the helper's rm of data/)"
+assert_eq "stop tar DELETE rm rm" "$(for i in 1 2 3 4 5; do nth_mutation "$i" | grep -oE ' (stop|tar|rm|kill)( |$)|-X DELETE' | head -n 1 | tr -d ' ' | sed 's/^-XDELETE$/DELETE/'; done | paste -sd ' ' -)" \
+    "in this order: compose stop, the archive, the DNS DELETE (before the containers), compose rm, then the helper's rm of data/"
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     created
     FAIL_AT=$FAIL_AT_N run --yes delete "$N"
     after_failure "delete, FAIL_AT=$FAIL_AT_N"
     world_kept && pass "delete, FAIL_AT=$FAIL_AT_N: the world is in the folder or in a trash/ archive that reads back" \
         || fail "delete, FAIL_AT=$FAIL_AT_N: the world is kept" "$(ls -R "$SB/servers" "$SB/trash" 2>&1)"
-    left=$OUT
     rm -f -- "$FAKE_STATE/mutations"
     run --yes delete "$N"
     world
     assert_eq "0 0 0 0" "$WC $WF $WS $WD" "delete, FAIL_AT=$FAIL_AT_N: after the re-run nothing of $N is left"
     if [[ $RC == 0 ]]; then
         pass "delete, FAIL_AT=$FAIL_AT_N: the re-run exits 0"
-    elif [[ $RC == 1 && $OUT == *"no server named '$N'"* && $left == *"$N: deleted, but mc-router was not signalled"* ]]; then
+    elif [[ $RC == 1 && $OUT == *"no server named '$N'"* ]]; then
         pass "delete, FAIL_AT=$FAIL_AT_N: the failed run had already removed everything; the re-run says there is nothing left (exit 1)"
     else
         fail "delete, FAIL_AT=$FAIL_AT_N: the re-run completes" "rc=$RC $OUT"
@@ -143,7 +148,7 @@ assert_eq 1 "$rc" "docker run tar (the extraction), FAIL_AT=1: exit 1"
 assert_contains "$out" "injected failure (FAIL_AT=1)" "and it is the injected failure"
 assert_eq 1 "$(<"$FAKE_STATE/mutations")" "it took the first slot"
 
-echo "restore: its extraction is the one docker run that is mutating"
+echo "restore: the chown of data/ and the extraction are the docker runs that change something"
 FX=$REPO/tests/fixtures/archives
 # restore_setup: server s1 with its world ("level") and clean.tar.gz in backups/; the call log and the counter start empty
 restore_setup() { created; mkdir -p "$SB/servers/$N/backups" && cp -- "$FX/clean.tar.gz" "$SB/servers/$N/backups/"; }
@@ -159,7 +164,7 @@ restore_setup
 FAIL_AT=0 MCCTL_YES=1 run backup "$N" restore clean.tar.gz
 assert_eq 0 "$RC" "restore, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 1 "$total" "restore makes 1 mutating call (the extraction, a docker run)"
+assert_eq 2 "$total" "restore makes 2 mutating calls (the chown of data/, the extraction)"
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     restore_setup
     FAIL_AT=$FAIL_AT_N MCCTL_YES=1 run backup "$N" restore clean.tar.gz
@@ -206,7 +211,7 @@ nt_one() { local o=0 n=0; nt_world "$1" "$2" && o=1; nt_world "$3" "$4" && n=1; 
 created; echo exited >"$FAKE_STATE/docker.inspect"
 FAIL_AT=0 run clone s1 c1; assert_eq 0 "$RC" "clone, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 3 "$total" "clone makes 3 mutating calls (DNS POST, compose create, router signal)"
+assert_eq 4 "$total" "clone makes 4 mutating calls (DNS POST, the chown of data/, the chown of the RCON secret, compose create)"
 run --yes delete c1 >/dev/null
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     rm -f -- "$FAKE_STATE/mutations"; truncate_log
@@ -233,8 +238,8 @@ for variant in exited running exited-sftp; do
     rm -rf -- "$SB/servers/s2" "$SB/secrets/rcon-s2"
     FAIL_AT=0 run --yes rename s1 s2; assert_eq 0 "$RC" "rename ($variant), counting its mutating calls"
     total=$(<"$FAKE_STATE/mutations")
-    want=5; [[ $state == running ]] && want=6; [[ $variant == *sftp ]] && want=$((want + 2))
-    assert_eq "$want" "$total" "rename ($variant) makes $want mutating calls (DNS POST, [stop,] compose rm, compose create, router signal, DNS DELETE[, two SFTP recreates])"
+    want=4; [[ $state == running ]] && want=5; [[ $variant == *sftp ]] && want=$((want + 2))
+    assert_eq "$want" "$total" "rename ($variant) makes $want mutating calls (DNS POST, [stop,] compose rm, compose create, DNS DELETE[, two SFTP recreates])"
     for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
         rm -f -- "$SB/sftp-users.conf"; created; echo "$state" >"$FAKE_STATE/docker.inspect"; rm -rf -- "$SB/servers/s2" "$SB/secrets/rcon-s2"
         rm -f -- "$FAKE_STATE/docker.compose.ps"; [[ $variant != *sftp ]] || echo cid >"$FAKE_STATE/docker.compose.ps"
@@ -265,7 +270,7 @@ done
 rm -f -- "$SB/sftp-users.conf"; created; echo exited >"$FAKE_STATE/docker.inspect"; rm -rf -- "$SB/servers/s2" "$SB/secrets/rcon-s2"
 FAIL_AT=0 run --yes rename s1 s2 --hostname play; assert_eq 0 "$RC" "rename to the same hostname, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 4 "$total" "rename to the same hostname makes 4 mutating calls (PATCH, compose rm, compose create, router signal)"
+assert_eq 3 "$total" "rename to the same hostname makes 3 mutating calls (PATCH, compose rm, compose create)"
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     rm -f -- "$SB/sftp-users.conf"; created; echo exited >"$FAKE_STATE/docker.inspect"; rm -rf -- "$SB/servers/s2" "$SB/secrets/rcon-s2"
     rm -f -- "$FAKE_STATE/mutations"; truncate_log
@@ -287,7 +292,7 @@ rm -f -- "$FAKE_STATE/docker.run.tar"
 reset_import() { rm -f -- "$FAKE_STATE/mutations"; truncate_log; }
 FAIL_AT=0 run import "$SB/imp.tgz" i1 --hostname ih1; assert_eq 0 "$RC" "import, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
-assert_eq 4 "$total" "import makes 4 mutating calls (DNS POST, the helper's data extraction, compose create, router signal)"
+assert_eq 5 "$total" "import makes 5 mutating calls (DNS POST, the chown of data/, the chown of the RCON secret, the helper's data extraction, compose create)"
 run --yes delete i1 >/dev/null; fake_gone i1 ih1
 for ((FAIL_AT_N = 1; FAIL_AT_N <= total; FAIL_AT_N++)); do
     reset_import

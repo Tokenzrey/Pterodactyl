@@ -3,6 +3,7 @@
 # E1: doctor's ordered call log and init's empty one. E4: a planted secret never reaches doctor's output or the call log.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 sandbox
 unset MCCTL_DOMAIN MCCTL_PUBLIC_IPV4 MCCTL_CF_ZONE_ID MCCTL_GAME_SUBNET MCCTL_ROUTER_IP

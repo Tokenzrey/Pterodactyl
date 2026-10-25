@@ -10,16 +10,21 @@
 
 # ---- the secret --------------------------------------------------------------------------------------------------------------
 
-# _write_rcon_secret NAME: replace secrets/rcon-NAME with a new random password (32 letters and digits, mode 600)
+# _write_rcon_secret NAME: replace secrets/rcon-NAME with a new random password (32 letters and digits, mode 600, owned by the game's user:
+# the server container reads it as that user). The new file is written beside the old one, given to the game's user, and only then
+# moved into place: a failure leaves the old password where it was.
 _write_rcon_secret() {
-    local name=${1-} f pw
+    local name=${1-} f pw tmp
     _need_name "$name" || return
     f=$MCCTL_ROOT/secrets/rcon-$name
     [[ ! -d $f ]] || { err "$f is a directory (Docker makes one when a bind-mounted file is missing): remove it, then run this again"; return 1; }
     mkdir_private "$MCCTL_ROOT/secrets" || return
     pw=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
     ((${#pw} == 32)) || { err "cannot read random bytes for the RCON password"; return 1; }
-    write_secret "$f" "$pw"
+    tmp=$(umask 077 && mktemp "$f.XXXXXX") || return 1
+    if printf '%s\n' "$pw" >"$tmp" && chmod 600 -- "$tmp" && _give_to_game "$tmp" && mv -f -- "$tmp" "$f"; then return 0; fi
+    rm -f -- "$tmp"
+    return 1
 }
 
 # ensure_rcon_secret NAME: 0 when secrets/rcon-NAME holds a password; makes one when the file is missing or empty

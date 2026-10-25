@@ -149,8 +149,8 @@ else fail "architecture.md has ${n:-0} mermaid blocks (at least 5)"; fi
 
 # the step words of each diagram, in the order the code runs them (architecture.md section 4.2)
 declare -A STEPS=(
-    [create]="validate flags|server_exists|cf_create_record|RCON secret|config files|write_compose|sftp_add_user|compose create|router_reload|_create_undo"
-    [delete]="confirm|dc stop|tar -tzf|_delete_dns|rm -s -f|router_reload|_remove_files"
+    [create]="validate flags|server_exists|cf_create_record|RCON secret|config files|write_compose|sftp_add_user|compose create|_create_undo"
+    [delete]="confirm|dc stop|tar -tzf|_delete_dns|rm -s -f|_remove_files"
     [backup restore]="while running|tar -tzf|unsafe members|confirm|data.pre-restore|extract|report both paths"
     [world restore]="while running|tar -tzf|safety|confirm|extract"
     [router and egress]="Internet|DNAT|DOCKER-USER|MCCTL-INGRESS|mc-router|game containers|INPUT"

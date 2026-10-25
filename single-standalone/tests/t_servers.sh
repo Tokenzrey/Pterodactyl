@@ -6,6 +6,7 @@
 # t_cloudflare.sh); here the DNS calls appear in their place in the ordered call log.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/modpack.sh"
@@ -79,9 +80,10 @@ assert_eq 0 "$RC" "create s1 succeeds"
 assert_eq "docker ps -a -q --filter label=mcctl.name=s1
 docker ps -a -q --filter label=mcctl.hostname=survival
 $(dns_made survival s1)
+$(give_line "$SB/servers/s1/data")
+$(give_line "$SB/secrets/rcon-s1.TMP")
 $(sftp_ps_call)
-docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml create
-$(reload_call)" "$(calls)" "calls: name check, hostname check, the DNS record, is SFTP running, compose create, then the router signal, in that order"
+docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml create" "$(calls)" "calls: name check, hostname check, the DNS record, the game's user is given data and the secret, is SFTP running, compose create, in that order"
 assert_eq "survival.mc.example.net mcctl name=s1" "$(dns_records)" "the DNS record survival.mc.example.net is made, its comment naming s1"
 assert_eq "# Written by mcctl create. mcctl reads this file; it never runs it.
 TYPE=PAPER
@@ -184,12 +186,15 @@ assert_eq "$files_before" "$(files_now)" "nothing else changed under servers/ an
 assert_eq "docker ps -a -q --filter label=mcctl.name=s3
 docker ps -a -q --filter label=mcctl.hostname=s3
 $(dns_made s3)
+$(give_line "$SB/servers/s3/data")
+$(give_line "$SB/secrets/rcon-s3.TMP")
 $(sftp_ps_call)
 docker compose -p mcctl-s3 -f $SB/servers/s3/compose.yaml create
 docker compose -p mcctl-s3 -f $SB/servers/s3/compose.yaml rm -s -f
 $(cf_get name=s3.mc.example.net)
 $(cf_del "$(cf_last_id)")
-$(sftp_ps_call)" "$(calls)" "calls: DNS, SFTP, create, then in reverse: the containers it may have made, the DNS record, the SFTP user"
+$(sftp_ps_call)
+$(clear_line "$SB/servers/s3")" "$(calls)" "calls: DNS, the game's user is given data and the secret, SFTP, create, then in reverse: the containers it may have made, the DNS record, the SFTP user, the game's data"
 assert_eq 0 "$(dns_records | grep -c 's3\.')" "the DNS record of s3 is gone again"
 reset
 echo 1 >"$FAKE_STATE/docker.compose.rm.rc"
@@ -273,8 +278,9 @@ m --yes delete s1
 assert_eq 1 "$RC" "delete when docker compose rm fails: EX_FAIL"
 assert_eq "docker ps -a -q --filter label=mcctl.name=s1
 docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml stop
+$(archive_line "$SB/servers/s1" "data backups")
 $(dns_gone s1 rec1)
-docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml rm -s -f" "$(calls)" "calls: stop, the DNS record (before the containers), then the failing rm; no router signal"
+docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml rm -s -f" "$(calls)" "calls: stop, the archive, the DNS record (before the containers), then the failing rm"
 assert_file "$SB/servers/s1/data/world/level.dat" "the folder is still there"
 assert_file "$SB/secrets/rcon-s1" "and so is the secret"
 assert_eq "" "$(dns_records | grep 'name=s1$')" "the DNS record went first: a container without a record, never a record without a container"
@@ -287,16 +293,18 @@ m --yes delete s1
 assert_eq 0 "$RC" "delete s1 --yes"
 assert_eq "docker ps -a -q --filter label=mcctl.name=s1
 docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml stop
+$(archive_line "$SB/servers/s1" "data backups safety")
 $(cf_get 'comment.exact=mcctl%20name%3Ds1')
 docker compose -p mcctl-s1 -f $SB/servers/s1/compose.yaml rm -s -f
-$(reload_call)
-$(sftp_ps_call)" "$(calls)" "calls: asks Docker, stops, looks for the DNS record (the failed run deleted it), removes the containers, signals the router, updates SFTP"
+$(sftp_ps_call)
+$(clear_line "$SB/servers/s1")" "$(calls)" "calls: asks Docker, stops, archives (with the safety archive), looks for the DNS record (the failed run deleted it), removes the containers, updates SFTP, clears the game's data"
 assert_no_file "$SB/servers/s1" "servers/s1 is gone"
 assert_no_file "$SB/secrets/rcon-s1" "and so is secrets/rcon-s1 (it would leak after the delete)"
 assert_eq "" "$(dns_records | grep 'name=s1$')" "and the DNS record"
 newest=$(ls -t "$SB"/trash/s1-*.tar.gz | head -n 1)
 assert_eq "level" "$(tar -xzOf "$newest" data/world/level.dat)" "the world is in trash/, in an archive that reads back"
-tar -tzf "$newest" | grep -qxF "safety/world-world-20260101T000000Z.tar.gz" && pass "and so is the world safety archive (safety/), so a server delete keeps it" || fail "the world safety archive is in the trash archive" "$(tar -tzf "$newest" 2>&1)"assert_contains "$OUT" "$newest" "and the output names it"
+tar -tzf "$newest" | grep -qxF "safety/world-world-20260101T000000Z.tar.gz" && pass "and so is the world safety archive (safety/), so a server delete keeps it" || fail "the world safety archive is in the trash archive" "$(tar -tzf "$newest" 2>&1)"
+assert_contains "$OUT" "$newest" "and the output names it"
 assert_not_contains "$OUT$(calls)" "$canary" "the secret value is in neither the output nor the call log (E4)"
 assert_file "$SB/servers/s2" "other servers are untouched"
 assert_file "$SB/secrets/rcon-s2" "and so are their secrets"
@@ -318,10 +326,11 @@ m --yes delete s2
 assert_eq 0 "$RC" "delete is idempotent: it finishes the job"
 assert_eq "docker ps -a -q --filter label=mcctl.name=s2
 docker compose -p mcctl-s2 -f $SB/servers/s2/compose.yaml stop
+$(archive_line "$SB/servers/s2" "data backups")
 $(dns_gone s2 rec2)
 docker compose -p mcctl-s2 -f $SB/servers/s2/compose.yaml rm -s -f
-$(reload_call)
-$(sftp_ps_call)" "$(calls)" "calls: stop, the DNS record, then rm (stop and rm are harmless with no container), the router signal, SFTP"
+$(sftp_ps_call)
+$(clear_line "$SB/servers/s2")" "$(calls)" "calls: stop, the archive, the DNS record, then rm (stop and rm are harmless with no container), SFTP, the game's data"
 assert_no_file "$SB/servers/s2" "servers/s2 is gone"
 assert_no_file "$SB/secrets/rcon-s2" "and its secret"
 echo "-- a container with no compose.yaml"

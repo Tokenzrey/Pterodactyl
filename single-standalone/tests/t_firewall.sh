@@ -3,6 +3,7 @@
 # firewall_check_lockout. E1: the ordered call log. E3: cmd_firewall is named here, no sudo.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/router.sh"
 source "$REPO/lib/firewall.sh"

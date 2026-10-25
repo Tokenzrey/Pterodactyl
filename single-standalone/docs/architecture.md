@@ -1,4 +1,4 @@
-# Architecture
+history# Architecture
 
 How mcctl changes the host, drawn from the code. Each diagram is the order the code runs the steps. Where a step can fail, the text under the diagram says what is left behind.
 
@@ -10,19 +10,19 @@ Docker is the only record of what exists: the containers and their labels. Folde
 flowchart TD
     A["validate flags (nothing is touched yet)"] --> B["server_exists, hostname_taken, leftover dir"]
     B --> C["cf_create_record: the DNS record"]
-    C --> D["folders, RCON secret"]
+    C --> D["folders, data/ given to the game's UID, RCON secret"]
     D --> E["config files: server.env, modpack.env, backup.env"]
     E --> F["write_compose"]
     F --> G["sftp_add_user"]
     G --> H["docker compose create: container exists, stopped"]
-    H --> I["router_reload: HUP to mc-router"]
     C -. "failure after the record" .-> U["_create_undo, in reverse order"]
     D -. "failure" .-> U
     E -. "failure" .-> U
     F -. "failure" .-> U
     H -. "failure" .-> U
-    I -. "failure" .-> U
 ```
+
+Nothing is sent to mc-router: it follows Docker's events and adds or drops a route when the container starts or stops. It must never get a `kill -s HUP`: its reload panics, and the router stays down.
 
 Validation and the Docker checks run before anything is written. A failure there changes nothing. Once the DNS record exists, a failure runs `_create_undo`: the containers go first, and only if that worked do the record, the folder and the secret. If the containers cannot be removed, everything is kept and `mcctl delete NAME` finishes the job. A failed SFTP user is a warning only: the server is created and `mcctl sftp repair` fixes SFTP later.
 
@@ -31,18 +31,17 @@ Validation and the Docker checks run before anything is written. A failure there
 ```mermaid
 flowchart TD
     A["confirm"] --> B["dc stop: containers stopped"]
-    B --> C["archive data, backups, safety to trash/NAME-UTC.tar.gz"]
+    B --> C["archive data, backups, safety to trash/NAME-UTC.tar.gz (read by a helper)"]
     C --> D["tar -tzf: the archive is read back"]
     D --> E["_delete_dns: DNS records of NAME"]
     E --> F["dc rm -s -f: containers removed"]
-    F --> G["router_reload"]
-    G --> H["_remove_files: servers/NAME, secrets/rcon-NAME, SFTP user"]
+    F --> G["_remove_files: helper removes data, backups, safety; then servers/NAME, secrets/rcon-NAME, SFTP user"]
     B -. "fails" .-> X["stop, nothing removed"]
     C -. "fails" .-> X
     E -. "fails" .-> X
 ```
 
-The DNS step comes before the containers are removed, so no record is left pointing at a server that is gone. When the archive or the DNS call fails, nothing has been removed: the server is stopped, and running `mcctl delete NAME` again starts clean. When `dc rm` fails, the DNS record is already gone, and the folder stays. A failed router signal does not stop the delete: the files go, and the command then exits with a failure that names `mc-router`.
+The DNS step comes before the containers are removed, so no record is left pointing at a server that is gone. When the archive or the DNS call fails, nothing has been removed: the server is stopped, and running `mcctl delete NAME` again starts clean. When `dc rm` fails, the DNS record is already gone, and the folder stays. The helper that removes `data/` runs only after the archive has been read back, so a failure there leaves the archive as the copy of the world.
 
 ## backup restore
 

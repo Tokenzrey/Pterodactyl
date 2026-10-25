@@ -2,6 +2,7 @@
 # lib/logs.sh: colorize_log_line, cmd_logs. E3: cmd_logs named in tests.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/servers.sh"

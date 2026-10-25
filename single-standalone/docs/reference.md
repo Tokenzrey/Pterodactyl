@@ -161,8 +161,9 @@ Order:
 2. The name and the hostname are checked against Docker (exit 4 when taken; the message names the server that has the hostname).
 3. The DNS record `HOST.MCCTL_DOMAIN` is made (see [Cloudflare DNS](#cloudflare-dns)). A record of that name that already exists is
    refused (exit 4); a request that fails is exit 1. Either way nothing has been written yet.
-4. The files are written, the server's SFTP user is added (see [mcctl sftp](#mcctl-sftp); a failure there only prints a warning), then
-   `docker compose create` runs, then mc-router is told (`docker compose -p mcctl-stack kill -s HUP mc-router`).
+4. The files are written (`data/` and the RCON secret are given to the game's user first: see [RCON](#rcon-how-mcctl-talks-to-a-server)),
+   the server's SFTP user is added (see [mcctl sftp](#mcctl-sftp); a failure there only prints a warning), then `docker compose create`
+   runs. mc-router needs no signal: it follows Docker's events.
 
 If any step after the DNS record fails, what was done is taken back in reverse order: first the containers `compose create` may
 have made, then the DNS record, then the folder and `secrets/rcon-NAME`. When removing the containers fails, the folder, the secret
@@ -172,10 +173,7 @@ was lost (a timeout) may still have made the record, so a failed request is foll
 name. A folder `servers/NAME` that exists while Docker has no such server is a leftover of an interrupted create or delete: `create`
 refuses (exit 4) and leaves it alone.
 
-With `MCCTL_DNS=on` needs `MCCTL_DOMAIN`, `MCCTL_PUBLIC_IPV4`, `MCCTL_CF_ZONE_ID` and `secrets/cloudflare_token` (exit 3 without any of them). With `MCCTL_DNS=off` it needs none of them. That
-`kill -s HUP mc-router` succeeds while the router stack is down is not yet checked on a real Docker host; if it does not, `create`
-fails at step 4 and takes everything back until `mcctl up` has run.
-
+With `MCCTL_DNS=on` needs `MCCTL_DOMAIN`, `MCCTL_PUBLIC_IPV4`, `MCCTL_CF_ZONE_ID` and `secrets/cloudflare_token` (exit 3 without any of them). With `MCCTL_DNS=off` it needs none of them.
 ### Modpacks
 
 `--modpack-source` picks the platform, `--modpack` is the pack and `--modpack-version` pins a version (leave it out for the
@@ -260,8 +258,7 @@ Three outcomes:
 The whole compose project is recreated (`docker compose up -d --force-recreate` with no service name, or `create
 --force-recreate`), never `mc` alone: the backup sidecar shares the game container's network namespace
 (`network_mode: "service:mc"`), so recreating `mc` alone would leave the sidecar attached to a dead namespace. After a live
-recreate, mc-router is told (`kill -s HUP mc-router`); a failed reload is only a warning (the container is already up with the
-new limits).
+recreate, mc-router needs no signal: it follows Docker's events.
 
 Exit codes: 0 applied, 1 Docker failure or unknown server, 2 bad input (invalid name, missing option, invalid value), 4 refused
 (players online without `--yes`, or a declined confirmation).
@@ -373,9 +370,11 @@ or set `MCCTL_YES=1`. In this order, each step safe to run again:
    Cloudflare answers starts clean.
 4. `docker compose rm -s -f`. If it fails, `delete` stops (exit 1): the DNS record is gone, the containers and the folder are still
    there, and running it again finishes the job.
-5. mc-router is told (`kill -s HUP mc-router`). If that fails, `delete` still finishes and exits 1 (the containers are gone).
-6. The server's SFTP user and key file are removed (see [mcctl sftp](#mcctl-sftp); a failure there only prints a warning), then
-   `servers/NAME` and `secrets/rcon-NAME` are deleted.
+5. The server's SFTP user and key file are removed (see [mcctl sftp](#mcctl-sftp); a failure there only prints a warning). Then a
+   helper container removes `data/`, `backups/` and `safety/`: they were archived in step 2, and they belong to the game's user (root
+   may own files in `backups/`), which the host user cannot remove. Last, `servers/NAME` and `secrets/rcon-NAME` are deleted. If the
+   helper fails, `delete` stops (exit 1): the containers and the DNS record are gone, the folder and the secret are left, and the next
+   `mcctl delete NAME` finishes.
 
 Step 2 is skipped for a folder that has none of `data/`, `backups/` and `safety/`, and the question says so. When nothing is left of a server
 but its DNS record (a `create` whose clean-up could not reach Cloudflare says so and points here), `delete NAME` removes the record,
@@ -463,7 +462,7 @@ A change reaches the running server only through `apply`, never through `set`. `
 `apply` compares the same hash. Equal: `nothing to apply`, and Docker compose is not called. Otherwise `compose.yaml` is
 written, then the players are checked: with none online it asks to confirm; with players online, or when the answer cannot be
 read, `--yes` is required, and without it the command exits 4 with nothing changed (the config stays pending). Then the whole
-compose project is recreated (`up -d --force-recreate`, then mc-router is told; a stopped server is created with
+compose project is recreated (`up -d --force-recreate`; a stopped server is created with
 `create --force-recreate`).
 
 The one-shot keys `*_FORCE_REINSTALL`, `FORCE_REDOWNLOAD` and `REMOVE_OLD_MODS` are left out of the hash: setting one does not make
@@ -525,7 +524,9 @@ redacted; it says when the file does not exist yet.
 
 ## RCON: how mcctl talks to a server
 
-Every server has a random RCON password, made once by `create` and kept in `secrets/rcon-NAME` (mode 600, 32 letters and digits).
+Every server has a random RCON password, made once by `create` and kept in `secrets/rcon-NAME` (mode 600, 32 letters and digits). The
+file belongs to the game's user (UID 1000): mcctl gives it to that user when it writes it (`create`, `rotate-rcon`, `import`), so the
+server can read it, and the host user cannot read it back. `export --with-secrets` copies it through a read-only helper container.
 The generated `compose.yaml` mounts it as a compose secret in the game container and in its backup sidecar and passes it on as
 `RCON_PASSWORD_FILE`. mcctl never reads it: every command below runs `docker exec -i mc-NAME rcon-cli COMMAND...`, and `rcon-cli`
 inside the container finds the password itself. The password is not in `server.env`, `compose.yaml`, an argument, the process list
@@ -1049,6 +1050,12 @@ processes and 128 MB of memory. A path is checked twice: as text here, and insid
 refuses a symbolic link that leads out of `data/`. The container is the boundary: it cannot see anything outside `data/`.
 The link check is a second barrier, in case the mount ever grows.
 
+**The other helpers.** Four steps need what neither the game's user nor the host user has. Each runs as root in a container with
+only the capability it needs, one path mounted at `/m`, no network and a read-only root file system: giving a file or folder to the
+game's user (`CHOWN`, for `data/` and the RCON secret); reading a server's folder to archive it (`DAC_READ_SEARCH`, read-only);
+removing `data/`, `backups/` and `safety/` after the archive has been read back (`DAC_OVERRIDE`); and reading the RCON secret for
+`export --with-secrets` (`DAC_READ_SEARCH`, read-only). They use the pinned `alpine:3.20`, never `MCCTL_DATA_IMAGE`.
+
 **The image.** The helper is `alpine:3.20`. The first call pulls that image through the host's Docker, which needs the
 network once; later calls use the local copy. `MCCTL_DATA_IMAGE` names another image (letters, digits and `. / : _ -`).
 
@@ -1269,7 +1276,7 @@ runs (newest first):
 | 6 | moves `secrets/rcon-NAME` to `secrets/rcon-NEW` (the same password) | moves it back |
 | 7 | SFTP: the key `sftp-keys/NAME` moves to NEW, NAME's user is removed, NEW's added | NEW's user removed, the key moved back, NAME's user added back |
 | 8 | `HOSTNAME_SLUG` in `server.env` is the new host; `compose.yaml` is rendered for NEW | the old `server.env` and `compose.yaml` text is written back |
-| 9 | `compose create` for NEW, mc-router told, NEW started if NAME ran | NEW's containers removed, mc-router told |
+| 9 | `compose create` for NEW, NEW started if NAME ran | NEW's containers removed |
 | end | with a new hostname, NAME's old DNS record is deleted | a failure only warns and names the record: `mcctl delete NAME` removes it |
 
 A failure at a step takes back the steps that ran, in reverse. A failing undo is a warning that says what is left. After any failure,

@@ -187,8 +187,7 @@ _rn_undo() {
                 cf_delete_record "$host" "$new" || warn "the DNS record $(fqdn_for "$host") of $new is left: 'mcctl delete $new' removes it"
             fi ;;
         3)  dc "$old" start || warn "could not start $old again: mcctl start $old" ;;
-        4)  dc "$old" create >/dev/null || warn "could not create the containers of $old again: mcctl apply $old, once Docker works"
-            router_reload || warn "could not signal mc-router (see above)" ;;
+        4)  dc "$old" create >/dev/null || warn "could not create the containers of $old again: mcctl apply $old, once Docker works" ;;
         5)  mv -- "$dir_n" "$dir_o" || warn "the folder is still $dir_n: move it back to $dir_o by hand"
             if ((sftp_old)); then sftp_add_user "$old" >/dev/null || warn "the SFTP user of $old is not back: mcctl sftp repair"; fi ;;
         6)  mv -- "$sec_n" "$sec_o" || warn "the RCON secret is still $sec_n: move it back to $sec_o by hand" ;;
@@ -196,8 +195,7 @@ _rn_undo() {
             sftp_remove_user "$new" || warn "the SFTP user $new is left: mcctl sftp repair" ;;
         8)  write_atomic "$dir_n/server.env" printf '%s' "$old_env" || warn "server.env of $new could not be put back as it was (see above)"
             write_atomic "$dir_n/compose.yaml" printf '%s' "$old_compose" || warn "compose.yaml of $new could not be put back (see above)" ;;
-        9)  dc "$new" rm -s -f >/dev/null || warn "the containers of $new are left: docker compose -p mcctl-$new rm -s -f"
-            router_reload || warn "could not signal mc-router (see above)" ;;
+        9)  dc "$new" rm -s -f >/dev/null || warn "the containers of $new are left: docker compose -p mcctl-$new rm -s -f" ;;
     esac
 }
 
@@ -287,10 +285,9 @@ cmd_rename() {
     done_steps+=(8)
     server_env_set "$new" HOSTNAME_SLUG "$host" || _rn_fail "$EX_FAIL" "cannot write $dir_n/server.env (see above)"
     write_compose "$new" || _rn_fail "$EX_FAIL" "cannot render $dir_n/compose.yaml (see above)"
-    # 6. the containers of NEW, mc-router told, and NEW started when OLD ran
+    # 6. the containers of NEW, and NEW started when OLD ran
     done_steps+=(9)
     dc "$new" create || _rn_fail "$EX_FAIL" "docker compose create failed for $new (see above)"
-    router_reload || _rn_fail "$EX_FAIL" "mc-router could not be told about $new (see above)"
     if ((ran)); then dc "$new" start || _rn_fail "$EX_FAIL" "docker compose start failed for $new (see above)"; fi
     # 7. the old DNS record, once the new one serves (a failure is a warning: the rename is done)
     if [[ $host != "$oldhost" ]]; then
@@ -330,7 +327,7 @@ cmd_export() {
     ((!secrets)) || [[ -f $MCCTL_ROOT/secrets/rcon-$name ]] || die "secrets/rcon-$name is missing: nothing was exported" "$EX_FAIL"
     (
         tmp=$(mktemp -d) || exit "$EX_FAIL"
-        trap 'rm -f -- "$tmp/mcctl-export" "$tmp/data.tar" "$tmp/all.tar"; rmdir -- "$tmp"' EXIT
+        trap 'rm -f -- "$tmp/mcctl-export" "$tmp/data.tar" "$tmp/all.tar" "$tmp/secrets/rcon-$name"; rmdir -- "$tmp/secrets" "$tmp" 2>/dev/null' EXIT
         printf 'format=1\nname=%s\nmcctl=%s\ncreated=%s\nsecrets=%s\n' "$name" "$MCCTL_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$secrets" \
             >"$tmp/mcctl-export" || exit "$EX_FAIL"
         # the members are read where they are: tar switches the folder (-C) for each one, so no copy is made
@@ -338,7 +335,13 @@ cmd_export() {
         for f in server.env modpack.env backup.env lists mods plugins; do
             [[ ! -e $dir/$f ]] || targs+=(-C "$dir" "$f")
         done
-        ((secrets == 0)) || targs+=(-C "$MCCTL_ROOT" "secrets/rcon-$name")
+        if ((secrets)); then
+            # the secret belongs to the game's user: a read-only helper that may read it (DAC_READ_SEARCH) copies it into the private folder
+            mkdir -- "$tmp/secrets" && _root_docker ro "$MCCTL_ROOT/secrets/rcon-$name" DAC_READ_SEARCH cat /m >"$tmp/secrets/rcon-$name" \
+                && chmod 600 -- "$tmp/secrets/rcon-$name" \
+                || die "cannot read secrets/rcon-$name (see above): nothing was written" "$EX_FAIL"
+            targs+=(-C "$tmp" "secrets/rcon-$name")
+        fi
         _quiesced "$name" _export_data "$name" "$tmp/data.tar" || die "the data of $name could not be read (see above): nothing was written" "$EX_FAIL"
         tar -cf "$tmp/all.tar" "${targs[@]}" && tar -Af "$tmp/all.tar" "$tmp/data.tar" \
             || die "could not assemble the archive (see above): nothing was written" "$EX_FAIL"
@@ -427,6 +430,8 @@ _import_files() {
     if grep -qxF -- "secrets/rcon-$mname" <<<"$names"; then
         write_atomic "$MCCTL_ROOT/secrets/rcon-$name" tar -xzOf "$arch" "secrets/rcon-$mname" \
             || _create_fail "$name" "$host" "cannot write secrets/rcon-$name (see above)"
+        _give_to_game "$MCCTL_ROOT/secrets/rcon-$name" \
+            || _create_fail "$name" "$host" "cannot give secrets/rcon-$name to the game's user (see above)"
     fi
 }
 

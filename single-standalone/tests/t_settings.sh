@@ -5,6 +5,7 @@
 # The goldens (11) are in t_compose.sh, t_edit.sh is unchanged (14), the flow (15) is in t_flows.sh.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/modpack.sh"
@@ -54,7 +55,6 @@ clean() {
 }
 SRV=$SB/servers/s1
 ASK="docker ps -a -q --filter label=mcctl.name=s1"
-RELOAD=$(reload_call)
 
 echo "1. Validation table (settings_check, test 1)"
 # vt KEY TYPE VALUE WANT: WANT is the value as it is stored, or REFUSED (exit 2, nothing printed)
@@ -193,8 +193,7 @@ assert_eq "$ASK
 docker inspect --format $FMT_LABEL mc-s1
 docker inspect --format $FMT_STATE mc-s1
 docker exec -i mc-s1 rcon-cli list
-docker compose -p mcctl-s1 -f $SRV/compose.yaml up -d --force-recreate
-$RELOAD" "$(calls)" "the ordered calls: name, label, state, list, up -d --force-recreate (no service name), HUP"
+docker compose -p mcctl-s1 -f $SRV/compose.yaml up -d --force-recreate" "$(calls)" "the ordered calls: name, label, state, list, up -d --force-recreate (no service name), no router signal"
 clean s1; mk s1 exited; m set s1 MOTD=new >/dev/null; run_as exited "$ZERO"; reset
 m --yes apply s1; assert_eq 0 "$RC" "apply on a stopped server: exit 0"
 assert_eq "$ASK
@@ -224,8 +223,7 @@ assert_eq "$ASK
 docker inspect --format $FMT_LABEL mc-s1
 docker inspect --format $FMT_STATE mc-s1
 docker exec -i mc-s1 rcon-cli list
-docker compose -p mcctl-s1 -f $SRV/compose.yaml up -d --force-recreate
-$RELOAD" "$(calls)" "set --apply: name, label, state, list, up, HUP"
+docker compose -p mcctl-s1 -f $SRV/compose.yaml up -d --force-recreate" "$(calls)" "set --apply: name, label, state, list, up (no router signal)"
 run_as running "$(config_hash s1)"; reset
 m set s1 MOTD=applied --apply; assert_contains "$OUT" "nothing to apply" "a set that changes nothing: nothing to apply"
 assert_eq 0 "$(count_calls '^docker compose')" "and no docker compose call"

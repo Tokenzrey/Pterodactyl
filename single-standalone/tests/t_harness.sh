@@ -3,6 +3,7 @@
 # zero-assertion guard and refusals of run.sh (E2), and plant_canary (E4).
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 sandbox
 
 echo "dispatcher"

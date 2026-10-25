@@ -5,6 +5,7 @@
 # E8 (Task 21): `mcctl import` refuses the same hostile fixtures with exit 4 before any Docker call (the last section).
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 FX=$REPO/tests/fixtures/archives
 T=$(mktemp -d) || exit 1
 

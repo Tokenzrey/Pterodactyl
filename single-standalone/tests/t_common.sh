@@ -2,6 +2,7 @@
 # lib/common.sh: name rules and the secret writer.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 sandbox
 
 assert_eq "kampung-2"  "$(slugify 'Kampung 2!')"        "slug of a name with punctuation"

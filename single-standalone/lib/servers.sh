@@ -41,10 +41,21 @@ _need_server() {
 
 # ---- removing what a server owns ---------------------------------------------------------------------------------------------
 
-# _remove_files NAME: delete servers/NAME and its RCON secret secrets/rcon-NAME (the container is the caller's business)
+# _clear_game_data NAME: remove data/, backups/ and safety/ of servers/NAME. The game's user owns data/, and root may own files in backups/:
+# the host user cannot remove them, so a helper with DAC_OVERRIDE does it. The caller has archived them before (cmd_delete).
+_clear_game_data() {
+    local name=${1-}
+    valid_server_name "$name" || return "$EX_USAGE"
+    [[ -d $MCCTL_ROOT/servers/$name ]] || return 0
+    _root_docker rw "$MCCTL_ROOT/servers/$name" "DAC_OVERRIDE DAC_READ_SEARCH" rm -rf -- /m/data /m/backups /m/safety
+}
+
+# _remove_files NAME: delete servers/NAME and its RCON secret secrets/rcon-NAME (the container is the caller's business). The game's
+# files go first (_clear_game_data); what is left belongs to the host user.
 _remove_files() {
     local name=${1-}
     sftp_remove_user "$name" || warn "$name: SFTP could not be updated (see above): run 'mcctl sftp repair' after fixing the cause"   # lib/sftp.sh; the user line, the key, the mounts. Never blocks the delete
+    _clear_game_data "$name" || return
     valid_server_name "$name" || return "$EX_USAGE"
     rm -rf -- "$MCCTL_ROOT/servers/$name" || return 1
     rm -f -- "$MCCTL_ROOT/secrets/rcon-$name"
@@ -75,9 +86,10 @@ _create_fail() {
 
 # _provision NAME HOST WRITE_FN: the steps create, clone and import share, in this order. The name and the host are checked against Docker
 # (nothing is touched when one is taken); then the DNS record; the folders (data, backups, and the attach points mods and plugins, mode
-# 755: attach_dir, lib/compose.sh); the RCON secret; "WRITE_FN NAME HOST" (the server's files; it calls _create_fail itself when one
-# fails); compose.yaml; the SFTP user; `compose create`; mc-router is told. A failure after the DNS record takes back what was done
-# (_create_fail, in reverse order).
+# 755: attach_dir, lib/compose.sh); data/ is given to the game's user, so that the helper can write the world into it before the first
+# start; the RCON secret; "WRITE_FN NAME HOST" (the server's files; it calls _create_fail itself when one fails); compose.yaml; the SFTP
+# user; `compose create`. A failure after the DNS record takes back what was done (_create_fail, in reverse order). mc-router needs no
+# signal: it follows Docker's events.
 _provision() {
     local name=$1 host=$2 write=$3 dir rc
     dir=$MCCTL_ROOT/servers/$name
@@ -96,19 +108,19 @@ _provision() {
     mkdir_private "$MCCTL_ROOT/servers" "$MCCTL_ROOT/secrets" "$dir" "$dir/data" "$dir/backups" || _create_fail "$name" "$host" "cannot create $dir"
     attach_dir "$name" mods >/dev/null && attach_dir "$name" plugins >/dev/null \
         || _create_fail "$name" "$host" "cannot create the mods and plugins folders of $name (see above)"
+    _give_to_game "$dir/data" || _create_fail "$name" "$host" "cannot give $dir/data to the game's user (see above)"
     _write_rcon_secret "$name" || _create_fail "$name" "$host" "cannot write secrets/rcon-$name"   # lib/rcon.sh; a stale file of that name is replaced
     "$write" "$name" "$host"
     write_compose "$name" || _create_fail "$name" "$host" "cannot render $dir/compose.yaml (see above)"
     sftp_add_user "$name" || warn "$name: SFTP could not be set up (see above); the server is created anyway: run 'mcctl sftp repair' after fixing the cause"   # lib/sftp.sh; SFTP never blocks a create
     dc "$name" create || _create_fail "$name" "$host" "docker compose create failed (see above); nothing was kept"
-    router_reload || _create_fail "$name" "$host" "mc-router could not be told about $name ('docker compose kill -s HUP mc-router' failed, see above); nothing was kept"
 }
 
 # cmd_create NAME --type T --accept-eula [--version V] [--memory 4G] [--cpus 2] [--hostname H]
 #                 [--modpack-source curseforge|modrinth --modpack ID [--modpack-version V]]
 # Order: validate every flag and the configuration (nothing is touched) -> check name and hostname against Docker -> the DNS
-# record -> write the files -> `compose create` (the container now exists, stopped: from here on Docker is the record) ->
-# router_reload. Any failure after the DNS record takes back what was done, in reverse order (_create_undo).
+# record -> write the files -> `compose create` (the container now exists, stopped: from here on Docker is the record). Any failure
+# after the DNS record takes back what was done, in reverse order (_create_undo).
 cmd_create() {
     local usage="usage: mcctl create NAME --type TYPE --accept-eula [--version V] [--memory 4G] [--cpus 2] [--hostname H] [--modpack-source curseforge|modrinth --modpack ID [--modpack-version V]] [--backup local|s3|rsync] [--backup-interval 24h]"
     local name=${1-} type="" version="" mem=4G cpus=2 host="" eula=0 src="" pack="" packver="" want="" bad=0 slug mpenv=""
@@ -337,14 +349,13 @@ _recreate_guard() {
     fi
 }
 
-# _recreate_apply NAME: recreate the containers of NAME from the files as they are: a running server with up -d --force-recreate (then
-# mc-router is told; a failure there only warns), a stopped one with create --force-recreate. Uses RECREATE_LIVE from _recreate_guard.
+# _recreate_apply NAME: recreate the containers of NAME from the files as they are: a running server with up -d --force-recreate, a stopped
+# one with create --force-recreate. Uses RECREATE_LIVE from _recreate_guard. mc-router follows Docker's events: nothing is sent to it.
 _recreate_apply() {
     local name=$1
     if ((RECREATE_LIVE)); then
         dc "$name" up -d --force-recreate \
             || die "the files are already written but docker compose up failed (see above); run the same command again to re-apply" "$EX_FAIL"
-        router_reload || warn "could not signal mc-router (see above): the container is already up with the new settings"
         info "$name: applied (restarted)"
     else
         dc "$name" create --force-recreate \
@@ -417,12 +428,13 @@ cmd_edit() {
 # ---- delete ------------------------------------------------------------------------------------------------------------------
 
 # _archive DIR ARCHIVE MEMBER...: DIR/MEMBER... as a tar.gz at ARCHIVE (mode 600; written beside it and moved into place, so a
-# failing tar leaves nothing), then read back in full with tar -tzf. 1, with no archive left, when either step fails.
+# failing tar leaves nothing), then read back in full with tar -tzf. 1, with no archive left, when either step fails. The members can
+# belong to the game's user or to root, so the tar runs in a read-only helper that may read anything in DIR (DAC_READ_SEARCH).
 _archive() {
     local dir=$1 arch=$2
     shift 2
     mkdir_private "${arch%/*}" || return 1
-    write_atomic "$arch" tar -czf - -C "$dir" "$@" || { err "tar could not archive $dir"; return 1; }
+    write_atomic "$arch" _root_docker ro "$dir" DAC_READ_SEARCH tar -czf - -C /m "$@" || { err "tar could not archive $dir"; return 1; }
     tar -tzf "$arch" >/dev/null || { err "the archive $arch does not read back"; rm -f -- "$arch"; return 1; }
 }
 
@@ -477,17 +489,10 @@ cmd_delete() {
     if [[ -f $dir/compose.yaml ]]; then
         dc "$name" rm -s -f || die "docker compose rm failed for $name (see above): its DNS record is deleted, its containers and $dir are still there${arch:+ (its archive is $arch)}. Run 'mcctl delete $name' again"
     fi
-    # 5. the router: a failure is reported, but the containers are gone, so their folder goes too
-    local ok=1
-    router_reload || { warn "could not signal mc-router (see above): it may keep a route to $name until it restarts"; ok=0; }
+    # 5. the router follows Docker's events: the containers are gone, so it drops their route by itself
     # 6. the files
-    _remove_files "$name" || die "could not delete $dir (files owned by another user? remove it by hand, then run this again)"
-    if ((ok)); then
-        info "$name: deleted${arch:+. Its world, mods and backups are in $arch: remove that file when you no longer need it}"
-        return 0
-    fi
-    err "$name: deleted, but mc-router was not signalled${arch:+ (its world, mods and backups are in $arch)}"
-    exit "$EX_FAIL"
+    _remove_files "$name" || die "could not delete $dir (see above): its containers and DNS record are gone and its archive is kept; run 'mcctl delete $name' again once the cause is fixed"
+    info "$name: deleted${arch:+. Its world, mods and backups are in $arch: remove that file when you no longer need it}"
 }
 
 # _delete_dns NAME: the DNS records of NAME (cf_delete_server, which deletes by id only records whose comment, as Cloudflare answered

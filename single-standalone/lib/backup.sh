@@ -170,8 +170,8 @@ cmd_backup() {
                 moved=1 hint="; the previous data is in $pre: move $data_dir away and $pre back to $data_dir by hand"
                 info "$name: the current data is in $pre until the restore has finished"
             fi
-            # 5. extract into a new data/ that belongs to the game's UID (root hands it over; any other user must be that UID)
-            if mkdir_private "$data_dir" && { ((EUID != 0)) || chown -- "$uid:$uid" "$data_dir"; } \
+            # 5. extract into a new data/ that belongs to the game's UID (given to it first: the helper writes as that user)
+            if mkdir_private "$data_dir" && _give_to_game "$data_dir" \
                 && _backup_extract "$data_dir" "$uid" "$arch" ${strip:+"$strip"}; then
                 # 6. report both paths
                 ((moved)) || { info "$name: restored $arch into $data_dir (there was no previous data)"; return 0; }

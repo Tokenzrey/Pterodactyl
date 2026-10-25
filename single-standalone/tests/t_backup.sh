@@ -7,6 +7,7 @@
 # 127.0.0.1 (carry-over from Task 6: it shares the game container's netns).
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/servers.sh"
@@ -272,7 +273,8 @@ m --yes backup s1 restore clean.tar.gz
 assert_eq 0 "$RC" "restore clean.tar.gz"
 assert_eq "docker ps -a -q --filter label=mcctl.name=s1
 docker inspect --format {{.State.Status}} mc-s1
-$RUN" "$(calls)" "calls: name check, inspect, one docker run: no network, no capabilities, tar from stdin, --no-same-owner"
+$(give_line "$SB/servers/s1/data")
+$RUN" "$(calls)" "calls: name check, inspect, the game's user is given data/, then one docker run: no network, no capabilities, tar from stdin, --no-same-owner"
 assert_contains "$(calls)" " --user 1000:1000 " "E12: the files are written by UID 1000 (the extraction runs as the game's UID)"
 cmp -s "$FX/clean.tar.gz" "$FAKE_STATE/run.stdin.1" && pass "the archive is the container's stdin" || fail "the archive is the container's stdin"
 assert_no_file "$FAKE_STATE/run.stdin.2" "and there is only one such call"
@@ -291,7 +293,7 @@ echo "backup restore: an archive with every member under data/ is extracted with
 put_arch clean-wrapped.tar.gz; reset
 m --yes backup s1 restore clean-wrapped.tar.gz
 assert_eq 0 "$RC" "restore clean-wrapped.tar.gz"
-assert_eq "$RUN --strip-components=1" "$(calls | grep '^docker run')" "the same call, with --strip-components=1"
+assert_eq "$RUN --strip-components=1" "$(calls | grep '^docker run' | tail -n 1)" "the same call, with --strip-components=1"
 cmp -s "$FX/clean-wrapped.tar.gz" "$FAKE_STATE/run.stdin.1" && pass "the archive is the container's stdin" || fail "the archive is the container's stdin"
 put_back "$(compgen -G "$D1.pre-restore-*")"
 
@@ -314,7 +316,7 @@ echo 1 >"$FAKE_STATE/docker.run.tar.rc"
 before=$(data_state); reset
 m --yes backup s1 restore clean.tar.gz
 assert_eq 1 "$RC" "a failing extraction: EX_FAIL"
-assert_eq 1 "$(count_calls '^docker run')" "after one docker run"
+assert_eq 2 "$(count_calls '^docker run')" "after the chown of data/ and one failed docker run"
 assert_contains "$OUT" "the previous data was moved back into $D1" "and the message says the previous data is back"
 assert_eq "$before" "$(data_state)" "data/ is as it was"
 assert_eq "" "$(compgen -G "$D1.pre-restore-*")" "data.pre-restore-<ts> is gone"
@@ -526,7 +528,7 @@ assert_eq 0 "$RC" "a successful restore, counting its mutating calls"
 total=$(<"$FAKE_STATE/mutations")
 ((total >= 1)) && pass "the restore makes $total mutating call(s), measured (the extraction is a docker run)" \
     || fail "the restore makes a mutating call" "mutations: '$total'"
-assert_eq 1 "$(count_calls '^docker run')" "and one docker run"
+assert_eq 2 "$(count_calls '^docker run')" "and two docker runs: the chown of data/, the extraction"
 for ((k = 1; k <= total; k++)); do
     restore_case
     d=$SB/servers/s1/data
@@ -538,7 +540,7 @@ for ((k = 1; k <= total; k++)); do
     assert_eq "" "$(compgen -G "$d.pre-restore-*")" "FAIL_AT=$k: no data.pre-restore-* is left behind"
     assert_eq "" "$(compgen -G "$d.failed-restore-*")" "FAIL_AT=$k: no data.failed-restore-* (nothing was extracted, the empty folder is removed)"
     assert_not_contains "$OUT" "what was extracted" "FAIL_AT=$k: the message does not say what was extracted"
-    assert_eq 1 "$(count_calls '^docker run')" "FAIL_AT=$k: the extraction is the call that failed (one docker run)"
+    assert_eq "$k" "$(count_calls '^docker run')" "FAIL_AT=$k: docker run number $k failed (1 is the chown of data/, 2 the extraction)"
     reset
     MCCTL_YES=1 m backup s1 restore clean.tar.gz
     assert_eq 0 "$RC" "FAIL_AT=$k: a re-run without FAIL_AT exits 0"

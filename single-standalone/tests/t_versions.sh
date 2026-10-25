@@ -7,6 +7,7 @@
 # A refusal or a failure before the write changes no server.env, compose.yaml or modpack.env byte.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 for _l in "$REPO"/lib/*.sh; do [[ $_l == */common.sh ]] || source "$_l"; done
 sandbox
 export MCCTL_DOMAIN=mc.example.net
@@ -308,8 +309,8 @@ assert_eq 0 "$(grep -c FORCE_REINSTALL "$SB/servers/r5/server.env" "$SB/servers/
 
 mk r6 running "TYPE=FORGE"
 printf 'starting\nhealthy\n' >"$FAKE_STATE/$HEALTH_KEY.seq"
-# mutations of a running recreate: up (1), the router's kill -s HUP (2), up again (3), its kill (4): FAIL_AT=3 is the second up
-FAIL_AT=3 m --yes reinstall r6 --timeout 5
+# mutations of a running recreate: up (1), up again (2): FAIL_AT=2 is the second up
+FAIL_AT=2 m --yes reinstall r6 --timeout 5
 assert_eq 1 "$RC" "the second recreate fails: exit 1"
 assert_eq 0 "$(grep -c FORCE_REINSTALL "$SB/servers/r6/server.env" "$SB/servers/r6/compose.yaml" | awk -F: '{s+=$2} END {print s+0}')" "the flag is removed from both files even then"
 assert_contains "$OUT" "run the same command again" "and the message says to run it again"

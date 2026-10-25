@@ -254,15 +254,18 @@ Files in `secrets/`, and who needs to read each one:
 | File | Read by | Owner and mode |
 |---|---|---|
 | `cloudflare_token` | mcctl, running as `deploy` on the host | `deploy`, 600 |
-| `rcon-NAME` (one per server) | the server container, which runs as UID 1000 | `1000:1000`, 600 |
-| `curseforge_api_key` (only for CurseForge modpacks) | the server container, UID 1000 | `1000:1000`, 600 |
+| `rcon-NAME` (one per server) | the server container, which runs as UID 1000 | `1000:<deploy group>`, 600 (mcctl sets the owner) |
+| `curseforge_api_key` (only for CurseForge modpacks) | the server container, UID 1000 | `1000:<deploy group>`, 640 (you set it once) |
 
-The server container runs as UID 1000. A file it must read has to be owned by UID 1000. mcctl creates these files as the user that runs
-it. If `deploy` is not UID 1000 (check with `id -u deploy`), the container cannot read `rcon-NAME`, and it restarts with
-`cat: /run/secrets/rcon_password: Permission denied`. Fix it for each such file:
+The server container runs as UID 1000. A file it must read has to be owned by UID 1000. mcctl gives `rcon-NAME` to UID 1000 itself
+when it writes it (`create`, `rotate-rcon`, `import`), through a helper container that holds the single capability `CHOWN`; the host
+user needs no `sudo` for that. Without it the container restarts with `cat: /run/secrets/rcon_password: Permission denied`.
+
+The CurseForge key is your file, so mcctl does not change it: it checks the owner before a CurseForge pack is created and says what to
+run if the owner is wrong. Once, as root, make it readable by the server and by `deploy`:
 
 ```bash
-sudo chown 1000:1000 secrets/rcon-NAME
+sudo chown 1000:$(id -g deploy) secrets/curseforge_api_key && sudo chmod 640 secrets/curseforge_api_key
 ```
 
 Do not change `cloudflare_token` to 1000: mcctl on the host reads it as `deploy`.

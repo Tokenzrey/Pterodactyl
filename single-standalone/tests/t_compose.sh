@@ -5,6 +5,7 @@
 # Settings: the server.env keys that are environment entries, the restart policy, the config hash (config_hash, write_compose).
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 sandbox

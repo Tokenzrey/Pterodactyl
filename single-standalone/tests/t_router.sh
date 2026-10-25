@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib/router.sh and templates/stack.compose.yml: router_port_free, cmd_up, cmd_down, router_reload, and the egress guard.
+# lib/router.sh and templates/stack.compose.yml: router_port_free, cmd_up, cmd_down, and the egress guard.
 # Review Focus 4: port 25565 already taken -> router_port_free names the listener and cmd_up refuses (EX_PREFLIGHT), creating nothing.
 # E1: the ordered call log of every command. The guard's shell script and its healthcheck are taken out of the template and RUN
 # against the fake iptables (tests/fakebin/iptables keeps the rules in order, like the kernel), then a small first-match evaluator
@@ -7,6 +7,7 @@
 # is dropped or passed on a real host. That needs real Docker (Spike S1, owed to the acceptance run).
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/router.sh"
 sandbox
@@ -484,13 +485,10 @@ reset
 m down now; assert_eq 2 "$RC" "down now: EX_USAGE"
 assert_eq "" "$(calls)" "before any call"
 
-echo "router_reload"
-reset
-router_reload; assert_eq 0 $? "router_reload"
-assert_eq "docker compose -p mcctl-stack -f $STACK kill -s HUP mc-router" "$(calls)" "one call: compose kill -s HUP mc-router of the stack project"
-assert_contains "$(calls)" "kill -s HUP mc-router" "(the HUP that tells mc-router to re-read its routes)"
-echo 1 >"$FAKE_STATE/docker.compose.kill.rc"
-router_reload; assert_eq 1 $? "router_reload returns the status of compose"
+echo "mc-router is never signalled"
+# its reload on SIGHUP panics (RoutesConfigLoader.isEnabled) and the router stays down: no code path may send it a signal
+sig=$(grep -rnE 'kill +(-s +|-)[A-Za-z0-9]+' -- "$REPO/lib" "$REPO/mcctl" 2>/dev/null || true)
+assert_eq "" "$sig" "no kill with a signal anywhere in lib/ or mcctl (mc-router follows Docker's events)"
 reset
 
 sandbox_cleanup

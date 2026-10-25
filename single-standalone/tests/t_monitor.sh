@@ -2,6 +2,7 @@
 # lib/monitor.sh: render_bar, render_top_frame, cmd_top. E10: widths under LC_ALL=C.UTF-8 and LC_ALL=C.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/servers.sh"

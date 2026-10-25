@@ -6,6 +6,7 @@
 # final name and moved into place; a failing tar leaves nothing. Nothing here needs a network: the fakes answer every call.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$REPO/lib/common.sh"
+source "$REPO/lib/data.sh"
 source "$REPO/lib/config.sh"
 source "$REPO/lib/compose.sh"
 source "$REPO/lib/modpack.sh"
@@ -32,7 +33,7 @@ DB=$FAKE_STATE/curl.records.json
 seed() { printf '%s\n' "$1" >"$DB"; }       # seed JSON-ARRAY: the zone's records, as Cloudflare would have them
 zone() { jq -cS . "$DB" | tr -d '\r'; }     # the zone, normalised, to compare before and after
 REC='.[] | [.type, .name, .content, (.proxied | tostring), (.ttl | tostring), (.comment // "none")] | join(" ")'
-STK="docker compose -p mcctl-stack -f $SB/templates/stack.compose.yml kill -s HUP mc-router"
+# no signal goes to mc-router in these flows: it follows Docker's events (lib/router.sh)
 dcl() { echo "docker compose -p mcctl-$1 -f $SB/servers/$1/compose.yaml $2"; }
 
 echo "fqdn_for"
@@ -217,10 +218,11 @@ assert_eq "docker ps -a -q --filter label=mcctl.name=s1
 docker ps -a -q --filter label=mcctl.hostname=play
 $(GET name=play.mc.example.net)
 $CURL -X POST $H --data {\"type\":\"A\",\"name\":\"play.mc.example.net\",\"content\":\"203.0.113.7\",\"ttl\":120,\"proxied\":false,\"comment\":\"mcctl name=s1\"} $API
+$(give_line "$SB/servers/s1/data")
+$(give_line "$SB/secrets/rcon-s1.TMP")
 $(sftp_ps_call)
-$(dcl s1 create)
-$STK" "$(calls)" "calls: Docker checks, the DNS record, is SFTP running, compose create, then router_reload"
-assert_eq 1 "$(count_calls 'kill -s HUP mc-router')" "create calls router_reload exactly once"
+$(dcl s1 create)" "$(calls)" "calls: Docker checks, the DNS record, the game's user is given data and the secret, is SFTP running, compose create"
+assert_eq 0 "$(count_calls 'kill -s HUP')" "create sends no router signal"
 assert_eq "play.mc.example.net mcctl name=s1" "$(dns_records)" "the record is there, with the server's name in its comment"
 fake_server s1 play
 reset; echo 7 >"$FAKE_STATE/curl.POST.rc"
@@ -247,20 +249,16 @@ assert_eq "docker ps -a -q --filter label=mcctl.name=s2
 docker ps -a -q --filter label=mcctl.hostname=s2
 $(GET name=s2.mc.example.net)
 $CURL -X POST $H --data {\"type\":\"A\",\"name\":\"s2.mc.example.net\",\"content\":\"203.0.113.7\",\"ttl\":120,\"proxied\":false,\"comment\":\"mcctl name=s2\"} $API
+$(give_line "$SB/servers/s2/data")
+$(give_line "$SB/secrets/rcon-s2.TMP")
 $(sftp_ps_call)
 $(dcl s2 create)
 $(dcl s2 'rm -s -f')
 $(GET name=s2.mc.example.net)
 $(DELETE rec2)
-$(sftp_ps_call)" "$(calls)" "calls: DNS, SFTP, compose create, then in reverse: the containers, the DNS record, the SFTP user"
-assert_eq 0 "$(count_calls 'kill -s HUP')" "no router_reload for a create that did not happen"
-reset; echo 1 >"$FAKE_STATE/docker.compose.kill.rc"
-run create s2 --type PAPER --accept-eula
-assert_eq 1 "$RC" "router_reload fails: EX_FAIL"
-assert_eq "play.mc.example.net mcctl name=s1" "$(dns_records)" "the record is taken back"
-assert_no_file "$SB/servers/s2" "and so is the folder"
-assert_eq "$STK
-$(dcl s2 'rm -s -f')" "$(calls | grep -E 'kill -s HUP|rm -s -f')" "the containers are removed after the failed signal"
+$(sftp_ps_call)
+$(clear_line "$SB/servers/s2")" "$(calls)" "calls: DNS, the game's user is given data and the secret, SFTP, compose create, then in reverse: the containers, the DNS record, the SFTP user, the game's data"
+assert_eq 0 "$(count_calls 'kill -s HUP')" "no router signal for a create that did not happen"
 reset; echo 1 >"$FAKE_STATE/docker.compose.create.rc"; echo 7 >"$FAKE_STATE/curl.DELETE.rc"
 run create s2 --type PAPER --accept-eula
 assert_eq 1 "$RC" "compose create fails, and so does the DNS clean-up: EX_FAIL"
@@ -271,7 +269,7 @@ run --yes delete s2
 assert_eq 0 "$RC" "mcctl delete s2 removes the left-over record"
 assert_eq "docker ps -a -q --filter label=mcctl.name=s2
 $(GET 'comment.exact=mcctl%20name%3Ds2')
-$(DELETE rec4)" "$(calls)" "calls: no container, no folder: only the DNS look-up and the DELETE"
+$(DELETE rec3)" "$(calls)" "calls: no container, no folder: only the DNS look-up and the DELETE"
 assert_contains "$OUT" "only its DNS record was left, and it is removed" "and it says what it did"
 assert_eq "play.mc.example.net mcctl name=s1" "$(dns_records)" "and only s1's record is left"
 MCCTL_PUBLIC_IPV4= run create s3 --type PAPER --accept-eula
@@ -303,7 +301,8 @@ for how in fails garbage; do
     PATH="$SB/tarbin:$PATH" run --yes delete s1
     assert_eq 4 "$RC" "tar $how: delete refuses (EX_REFUSED)"
     assert_eq "docker ps -a -q --filter label=mcctl.name=s1
-$(dcl s1 stop)" "$(calls)" "tar $how: calls: only the stop; no container removal, no DNS call, no router signal"
+$(dcl s1 stop)
+$(archive_line "$SB/servers/s1")" "$(calls)" "tar $how: calls: the stop and the archive; no container removal, no DNS call"
     assert_file "$SB/servers/s1/data/world/level.dat" "tar $how: the world is untouched"
     assert_file "$SB/secrets/rcon-s1" "tar $how: and the secret"
     assert_eq "play.mc.example.net mcctl name=s1" "$(dns_records)" "tar $how: and the DNS record"
@@ -316,8 +315,9 @@ run --yes delete s1
 assert_eq 1 "$RC" "the DNS delete fails: delete stops there, EX_FAIL"
 assert_eq "docker ps -a -q --filter label=mcctl.name=s1
 $(dcl s1 stop)
+$(archive_line "$SB/servers/s1")
 $(GET 'comment.exact=mcctl%20name%3Ds1')
-$(DELETE rec1)" "$(calls)" "calls: stop, the DNS look-up and the failing DELETE, nothing after it: no container removal, no router signal"
+$(DELETE rec1)" "$(calls)" "calls: stop, the archive, the DNS look-up and the failing DELETE, nothing after it: no container removal"
 assert_contains "$OUT" "could not delete the DNS record play.mc.example.net" "a warning names the record"
 assert_contains "$OUT" "nothing was removed" "the message says nothing was removed"
 assert_contains "$OUT" "Run 'mcctl delete s1' again once Cloudflare answers" "and how to finish"
@@ -340,12 +340,13 @@ run --yes delete s1
 assert_eq 0 "$RC" "run again once Cloudflare answers: delete completes"
 assert_eq "docker ps -a -q --filter label=mcctl.name=s1
 $(dcl s1 stop)
+$(archive_line "$SB/servers/s1")
 $(GET 'comment.exact=mcctl%20name%3Ds1')
 $(DELETE rec1)
 $(dcl s1 'rm -s -f')
-$STK
-$(sftp_ps_call)" "$(calls)" "calls: stop, the DNS record, then the containers, then router_reload, then SFTP"
-assert_eq 1 "$(count_calls 'kill -s HUP mc-router')" "delete calls router_reload exactly once"
+$(sftp_ps_call)
+$(clear_line "$SB/servers/s1")" "$(calls)" "calls: stop, the archive, the DNS record, then the containers, then SFTP, then the game's data"
+assert_eq 0 "$(count_calls 'kill -s HUP')" "delete sends no router signal"
 assert_eq "" "$(dns_records)" "the record is gone"
 assert_no_file "$SB/servers/s1" "the folder is gone"
 assert_no_file "$SB/secrets/rcon-s1" "and the secret"

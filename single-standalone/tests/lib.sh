@@ -33,8 +33,22 @@ assert_mode() { # FILE MODE MSG
     assert_eq "$2" "$(stat -c %a "$1" 2>/dev/null)" "$3"
 }
 
-calls() { cat "$FAKE_STATE/calls.log" 2>/dev/null; }
+# calls: the call log. The temporary file of a secret write has a random suffix (rcon-NAME.XXXXXX): it reads as rcon-NAME.TMP here.
+calls() { sed -E 's/(rcon-[a-z0-9-]+)\.[A-Za-z0-9]{6}:/\1.TMP:/' "$FAKE_STATE/calls.log" 2>/dev/null; }
 count_calls() { calls | grep -c -- "$1"; }
+
+# The helper runs of lib/data.sh as the call log has them, one line each: give (chown of a file or folder to UID 1000), archive (tar of
+# a server folder, read-only) and clear (rm -rf of data/, backups/ and safety/). PATH is the host path that is mounted at /m.
+root_docker_line() { # MODE PATH CAPS CMD...
+    local mode=$1 path=$2 caps=$3 cap l="docker run --rm --network none --cap-drop ALL" cmd
+    shift 3
+    for cap in $caps; do l+=" --cap-add $cap"; done
+    cmd="$*"
+    printf '%s --security-opt no-new-privileges --read-only --tmpfs /tmp --pids-limit 64 --memory 128m -v %s:/m:%s alpine:3.20 %s\n' "$l" "$path" "$mode" "$cmd"
+}
+give_line() { root_docker_line rw "$1" CHOWN 'sh -c chown -- "$1:$1" /m && [ "$(stat -c %u /m)" = "$1" ] sh 1000'; }
+archive_line() { root_docker_line ro "$1" DAC_READ_SEARCH "tar -czf - -C /m ${2:-data backups}"; }   # PATH [MEMBERS]: the folders that exist
+clear_line() { root_docker_line rw "$1" "DAC_OVERRIDE DAC_READ_SEARCH" 'rm -rf -- /m/data /m/backups /m/safety'; }
 
 # strip_ansi S: remove ANSI escape sequences (ESC [ ... letter) from S
 strip_ansi() { sed 's/\x1b\[[0-9;?]*[A-Za-z]//g' <<<"$1"; }
@@ -123,7 +137,7 @@ fake_cloudflare() {
 dns_records() { jq -r "${1:-.[] | \"\\(.name) \\(.comment)\"}" "$FAKE_STATE/curl.records.json" 2>/dev/null | tr -d '\r' | sort; }
 # The calls create and delete make for DNS and the router, as the fakes log them (for ordered call-log assertions):
 #   cf_get QUERY, cf_post HOST [NAME], cf_del ID; dns_made HOST [NAME] (look-up and POST of create); dns_gone NAME ID (look-up by
-#   and DELETE of delete); cf_last_id (the id of the record the fake made last); reload_call (router_reload)
+#   and DELETE of delete); cf_last_id (the id of the record the fake made last)
 cf_url()  { echo "https://api.cloudflare.com/client/v4/zones/$MCCTL_CF_ZONE_ID/dns_records$1"; }
 cf_get()  { echo "curl -q -sS --proto =https --max-time 30 --config - -X GET -H Content-Type: application/json $(cf_url "?$1")"; }
 cf_post() { echo "curl -q -sS --proto =https --max-time 30 --config - -X POST -H Content-Type: application/json --data {\"type\":\"A\",\"name\":\"$1.$MCCTL_DOMAIN\",\"content\":\"$MCCTL_PUBLIC_IPV4\",\"ttl\":120,\"proxied\":false,\"comment\":\"mcctl name=${2:-$1}\"} $(cf_url)"; }
@@ -131,7 +145,6 @@ cf_del()  { echo "curl -q -sS --proto =https --max-time 30 --config - -X DELETE 
 dns_made() { cf_get "name=$1.$MCCTL_DOMAIN"; cf_post "$1" "${2:-$1}"; }
 dns_gone() { cf_get "comment.exact=mcctl%20name%3D$1"; cf_del "$2"; }
 cf_last_id() { echo "rec$(<"$FAKE_STATE/curl.ids")"; }
-reload_call() { echo "docker compose -p mcctl-stack -f $SB/templates/stack.compose.yml kill -s HUP mc-router"; }
 # sftp_ps_call: the question every SFTP change asks ("is the SFTP container running?"); create and delete log it where they change SFTP
 sftp_ps_call() { echo "docker compose -p mcctl-sftp -f $SB/sftp.compose.yml ps -q --status running sftp"; }
 

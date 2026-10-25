@@ -41,15 +41,22 @@ _data_dir() {
     printf '%s/data\n' "$dir"
 }
 
+# game_uid -> stdout the user the game runs as: MCCTL_UID, default 1000, a number from 1 to 65535. Anything else dies (EX_PREFLIGHT).
+game_uid() {
+    local uid=${MCCTL_UID:-1000}
+    [[ $uid =~ ^[1-9][0-9]{0,4}$ ]] && ((uid <= 65535)) \
+        || die "MCCTL_UID=${uid@Q} must be a number from 1 to 65535 (the user the file helper runs as; the game's user in itzg's image is 1000)" "$EX_PREFLIGHT"
+    printf '%s\n' "$uid"
+}
+
 # _data_docker STDIN NAME CMD...: one docker run of CMD with servers/NAME/data as /data. STDIN 1 keeps the caller's stdin (-i).
 # The user and the image are checked here, before any Docker call, and an invalid value exits EX_PREFLIGHT.
 _data_docker() {
-    local stdin=$1 name=$2 dir uid=${MCCTL_UID:-1000} image=${MCCTL_DATA_IMAGE:-$DATA_IMAGE}
+    local stdin=$1 name=$2 dir uid image=${MCCTL_DATA_IMAGE:-$DATA_IMAGE}
     local -a io=()
-    local uid_re='^[1-9][0-9]{0,4}$' image_re='^[a-z0-9][a-z0-9./:_-]*$'
+    local image_re='^[a-z0-9][a-z0-9./:_-]*$'
     shift 2
-    [[ $uid =~ $uid_re ]] && ((uid <= 65535)) \
-        || die "MCCTL_UID=${uid@Q} must be a number from 1 to 65535 (the user the file helper runs as; the game's user in itzg's image is 1000)" "$EX_PREFLIGHT"
+    uid=$(game_uid) || exit "$EX_PREFLIGHT"
     [[ $image =~ $image_re ]] \
         || die "MCCTL_DATA_IMAGE=${image@Q} is not an image reference (e.g. alpine:3.20)" "$EX_PREFLIGHT"
     dir=$(_data_dir "$name") || return
@@ -63,6 +70,30 @@ _data_docker() {
 data_run() { _data_docker 0 "$@"; }
 # data_pipe NAME CMD...: as data_run, but CMD reads the caller's stdin (put and edit stream a file through it)
 data_pipe() { _data_docker 1 "$@"; }
+
+# _root_docker MODE PATH CAPS CMD...: one docker run as root with only the capabilities in CAPS (a space-separated list) added. PATH, a
+# file or a folder, is mounted at /m (MODE ro or rw) and the container has no network. The image is the pinned DATA_IMAGE, never
+# MCCTL_DATA_IMAGE: this one runs as root. The caller fixes CMD; the paths in it are inside /m. PATH must exist: Docker would make a
+# missing one as root.
+_root_docker() {
+    local mode=$1 path=$2 caps=$3 cap
+    local -a capargs=()
+    shift 3
+    [[ $path != *:* ]] || { err "${path@Q} has a colon, which the mount cannot take: refused"; return "$EX_FAIL"; }
+    [[ -e $path ]] || { err "${path@Q} does not exist: refused (Docker would create it as root)"; return "$EX_FAIL"; }
+    for cap in $caps; do capargs+=(--cap-add "$cap"); done
+    docker run --rm --network none --cap-drop ALL "${capargs[@]}" --security-opt no-new-privileges \
+        --read-only --tmpfs /tmp --pids-limit 64 --memory 128m -v "$path:/m:$mode" "$DATA_IMAGE" "$@"
+}
+
+# _give_to_game PATH: PATH (a file or a folder) belongs to the game's user from now on, its mode unchanged. The server reads its secrets
+# and writes its data as that user, and mcctl runs as the host user, which cannot chown: a helper with CHOWN alone does it.
+_give_to_game() {
+    local path=$1 uid
+    uid=$(game_uid) || exit "$EX_PREFLIGHT"
+    _root_docker rw "$path" CHOWN sh -c 'chown -- "$1:$1" /m && [ "$(stat -c %u /m)" = "$1" ]' sh "$uid" \
+        || { err "cannot give ${path@Q} to UID $uid (see above)"; return "$EX_FAIL"; }
+}
 
 # _confine NAME PATH: 0 when PATH resolves inside data/ in the helper. A missing last part is fine (put and mkdir name paths that do
 # not exist yet). A symbolic link that leads out of data/ is refused before any read or write.

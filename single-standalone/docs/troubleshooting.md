@@ -23,7 +23,7 @@ Find the text of the message you see in the first column. The text in backticks 
 | `no Cloudflare API token` | `secrets/cloudflare_token` is missing or not readable | put a token there, mode 600, with DNS edit on the one zone |
 | `could not be deleted` | the DNS record of a server could not be removed (Cloudflare unreachable, or the token is wrong) | nothing was removed; fix the token or the network, then run `mcctl delete NAME` again |
 | `could not archive` | the archive of a server's data failed (disk full, permissions) | nothing was deleted; fix the cause, then run `mcctl delete NAME` again |
-| `files owned by another user` | `delete` cannot remove a file that another user owns | remove that folder by hand, then run `mcctl delete NAME` again |
+| `could not delete` | `delete` could not clear the server's folder; the helper's error is above it | its containers and DNS record are gone and the archive is kept; fix the cause (Docker running, the image there), then run `mcctl delete NAME` again |
 | `no server named` | the name is misspelt, or the server is already deleted | run `mcctl list` to see the names |
 | `is not running` | a command needs the server running (for example RCON) | start it with `mcctl start NAME`, then run the command again |
 | `is running: stop it first` | a restore of a running server, refused to protect the world | run `mcctl stop NAME`, then restore |
@@ -52,7 +52,6 @@ Find the text of the message you see in the first column. The text in backticks 
 | `cannot tell whether port` | `ss` failed, so the port cannot be checked | run `ss -ltnp` by hand and fix what it reports |
 | `docker compose stop failed` | Docker failed on a stop | nothing was deleted; check Docker, then run the command again |
 | `docker compose create failed` | Docker failed on `create` | nothing is kept (the undo ran); read the compose output above it, then run `create` again |
-| `could not signal mc-router` | mc-router did not take the HUP | run `mcctl up`; the routes are read again when it starts |
 | `the files are already written but docker compose up failed` | `apply` stopped after it wrote the files | run the same `apply` again |
 | `SFTP could not be set up` | SFTP failed during `create` | the server was created; fix the cause, then run `mcctl sftp repair` |
 | `the SFTP stack did not start` | the SFTP container failed in `mcctl up` | fix the cause, then run `mcctl sftp repair` |
@@ -109,8 +108,9 @@ container; the current templates include the capability and the host-key volume.
 ### The server container restarts with `Permission denied` on `/run/secrets/rcon_password`
 
 The server runs as UID 1000 and cannot read `secrets/rcon-NAME`, which belongs to another user (usually `deploy`, UID 1001). Check with
-`ls -ln secrets/` and `id -u deploy`. Fix it with `sudo chown 1000:1000 secrets/rcon-NAME`, then `mcctl start NAME`. The file the host
-reads (`cloudflare_token`) keeps its owner. See [VPS setup step 11](vps-setup.md#11-secrets-and-who-can-read-them).
+`ls -ln secrets/` and `id -u deploy`. mcctl gives the file to UID 1000 itself whenever it writes it (`create`, `rotate-rcon`,
+`import`), so this comes back only for a file made before that change. Then, once, as root: `chown 1000:1000 secrets/rcon-NAME`, and
+`mcctl start NAME`. Do not change `cloudflare_token`: the host reads it. See [VPS setup step 11](vps-setup.md#11-secrets-and-who-can-read-them).
 
 ### Cloudflare: `10000 Authentication error` or `can not be used before`
 
