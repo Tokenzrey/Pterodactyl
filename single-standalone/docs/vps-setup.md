@@ -346,8 +346,25 @@ on the host's loopback only, so connect through an SSH tunnel.
 
 ## Updating mcctl on the VPS
 
-Copy the new code with the command in step 8, then run `./mcctl up`. The config and the secrets are not touched by the copy.
-Read the changelog of the release, and check `./mcctl doctor` and `tests/acceptance-preflight.sh` afterwards.
+Send the new code from the checkout on your machine with `tools/sync-vps.sh`. It copies the code only (never `config/mcctl.env`,
+`secrets/`, `servers/`, `trash/`, `backups/` or the generated SFTP files), then compares the checksum of the code on both sides and says
+whether they are in sync:
+
+```bash
+bash tools/sync-vps.sh deploy@203.0.113.7 ~/.ssh/id_ed25519_vps mcctl
+```
+
+Run it from WSL or Git Bash, in the checkout of this repository. Then, on the VPS:
+
+```bash
+cd ~/mcctl
+./mcctl up                          # applies the code; containers are recreated only when their configuration changed
+./mcctl doctor
+bash tests/acceptance-preflight.sh; echo "exit $?"
+```
+
+A file removed from the checkout stays on the VPS: delete it there by hand if it matters. Read the changes of the release before you run
+`up`, because a Java or image change recreates the containers of every server it applies to.
 
 ## When something goes wrong
 
