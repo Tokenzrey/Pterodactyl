@@ -9,6 +9,19 @@
 
 ROUTER_PORT=25565
 STACK_PROJECT=mcctl-stack
+
+# game_ip_range -> stdout the --ip-range of mcctl_game: the half of MCCTL_GAME_SUBNET that does not hold MCCTL_ROUTER_IP. Docker then
+# never gives the router's address to a server, even while the router is down. (An --aux-address would reserve it for everyone, and
+# the router's static address would then be refused: "Address already in use".)
+game_ip_range() {
+    local a b c d p=${MCCTL_GAME_SUBNET#*/} n r half start
+    IFS=. read -r a b c d <<<"${MCCTL_GAME_SUBNET%/*}"; n=$(( (a << 24) | (b << 16) | (c << 8) | d ))
+    IFS=. read -r a b c d <<<"$MCCTL_ROUTER_IP"; r=$(( (a << 24) | (b << 16) | (c << 8) | d ))
+    half=$(( 1 << (31 - p) ))
+    start=$n
+    if (( r - n < half )); then start=$(( n + half )); fi
+    printf '%d.%d.%d.%d/%d\n' $(( (start >> 24) & 255 )) $(( (start >> 16) & 255 )) $(( (start >> 8) & 255 )) $(( start & 255 )) $(( p + 1 ))
+}
 GAME_NETWORK=mcctl_game
 STACK_COMPOSE=$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates" 2>/dev/null && pwd -P)/stack.compose.yml
 
@@ -55,8 +68,8 @@ cmd_up() {
     ids=$(docker network ls -q --filter "name=^${GAME_NETWORK}\$") \
         || die "cannot ask Docker ('docker network ls' failed): is the daemon running, and may this user use it? Nothing was created."
     if [[ -z $ids ]]; then
-        # the router's address is reserved (--aux-address): Docker never gives it to a game container, even while the router is down
-        docker network create --driver bridge --subnet "$MCCTL_GAME_SUBNET" --aux-address "router=$MCCTL_ROUTER_IP" --label mcctl.managed=true "$GAME_NETWORK" >/dev/null \
+        # the game containers get addresses from the half of the subnet that does not hold the router (game_ip_range)
+        docker network create --driver bridge --subnet "$MCCTL_GAME_SUBNET" --ip-range "$(game_ip_range)" --label mcctl.managed=true "$GAME_NETWORK" >/dev/null \
             || die "cannot create the network $GAME_NETWORK on $MCCTL_GAME_SUBNET (see above). A subnet that overlaps another Docker network or route is the usual cause: change MCCTL_GAME_SUBNET and MCCTL_ROUTER_IP in config/mcctl.env."
     else
         # the egress rules are written for MCCTL_GAME_SUBNET: a network on another subnet would be left unguarded

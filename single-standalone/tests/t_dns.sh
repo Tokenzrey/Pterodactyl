@@ -54,6 +54,12 @@ assert_contains "$out" "127.0.0.1 s2.mc.local" "off: the line is printed"
 out=$(MCCTL_DNS=on dns_hint s2.mc.local 2>&1)
 assert_eq "" "$out" "on: nothing is printed"
 
+echo "game_ip_range: the half of the subnet without the router, so the router's address is never handed out"
+assert_eq "172.30.0.128/25" "$(MCCTL_GAME_SUBNET=172.30.0.0/24 MCCTL_ROUTER_IP=172.30.0.2 game_ip_range)" "router in the low half: the high half"
+assert_eq "172.30.0.0/25" "$(MCCTL_GAME_SUBNET=172.30.0.0/24 MCCTL_ROUTER_IP=172.30.0.200 game_ip_range)" "router in the high half: the low half"
+assert_eq "10.50.0.128/25" "$(MCCTL_GAME_SUBNET=10.50.0.0/24 MCCTL_ROUTER_IP=10.50.0.2 game_ip_range)" "another private subnet"
+assert_eq "10.8.128.0/17" "$(MCCTL_GAME_SUBNET=10.8.0.0/16 MCCTL_ROUTER_IP=10.8.0.2 game_ip_range)" "a /16 splits the same way"
+
 echo "the router publishes its game port on 127.0.0.1 with DNS off, on every address with DNS on"
 bind_of() { ( docker() { printf '%s\n' "$MCCTL_ROUTER_BIND"; }; stack_dc up ); }
 assert_eq "127.0.0.1" "$(MCCTL_DNS=off bind_of)" "off: 127.0.0.1"
