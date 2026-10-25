@@ -3,6 +3,8 @@
 Start with [prerequisites](prerequisites.md) on a new host, then [architecture](architecture.md) to see what mcctl changes and where it can fail.
 
 - [Prerequisites](prerequisites.md): Docker and Compose, the tools, Cloudflare, CurseForge, the firewall, Ubuntu and WSL.
+- [VPS setup](vps-setup.md): the whole path on a fresh Ubuntu VPS, step by step with checks: users and SSH keys, hardening, Docker,
+  Cloudflare, the firewall, the first server, and what to keep private.
 - [Architecture](architecture.md): the create, delete, backup restore, world restore, router and egress, and drift flows.
 - [Management guide](management-guide.md): worlds, settings, files, players, mods, versions, modpacks, and clone, rename, export and import, with examples and refusals.
 - [Command reference](reference.md): every command and its flags, the configuration keys, the settings table, exit codes, and the file layout.

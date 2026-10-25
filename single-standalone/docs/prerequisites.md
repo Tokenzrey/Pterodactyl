@@ -45,7 +45,7 @@ Packs from CurseForge need an API key in `secrets/curseforge_api_key`, mode 600,
 
 ## Ubuntu and WSL
 
-- Ubuntu (a VPS) is the primary host. Every path in `mcctl` must work there.
+- Ubuntu (a VPS) is the primary host. Every path in `mcctl` must work there. For the whole setup, step by step, see [VPS setup](vps-setup.md).
 - WSL works for development and for the test suite. `systemd-run` needs systemd running in the distribution (`[boot] systemd=true` in `/etc/wsl.conf`). Without it, use `MCCTL_FIREWALL_ROLLBACK_SECONDS=0` or do not run `firewall apply`.
 - Under Docker Desktop, "the host's network namespace" that the egress guard uses is the Docker VM, not Windows. The guard's rules live there.
 - Spike S1 (router to game container with the guard healthy, and no route from a game container to the gateway or the metadata address) on Ubuntu and on WSL: not yet recorded. Task 23 records the result.

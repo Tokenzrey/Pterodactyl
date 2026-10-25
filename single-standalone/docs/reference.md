@@ -777,6 +777,92 @@ From your own machine, tunnel through SSH first (`ssh -N -L 2222:127.0.0.1:2222 
 To publish the port on every address, set `MCCTL_SFTP_PUBLIC=1` (in the environment or in `config/mcctl.env`) and run `mcctl up`; only
 key logins are possible either way, but a public SSH port is still one more thing on the internet, and the host's firewall must allow it.
 
+### Connecting step by step
+
+These steps connect from your own machine (Linux, WSL, Git Bash or PowerShell with OpenSSH, or FileZilla on Windows) to one
+server's files. The SFTP port listens on the host's loopback only, so the connection goes through an SSH tunnel to the host.
+
+**1. Check that the key is installed.** The public key of your device must be in `sftp-keys/NAME` on the host. On the host:
+
+```
+cat ~/mcctl/sftp-keys/NAME
+```
+
+Compare it with your own public key (`cat ~/.ssh/id_ed25519.pub` on the device): they must be the same line. If the file is missing,
+copy your `.pub` file to the host and run `mcctl sftp add-key NAME PUBKEYFILE` there.
+
+**2. Check that the SFTP container runs.** On the host:
+
+```
+docker ps --filter name=mcctl-sftp --format '{{.Names}} {{.Status}}'
+```
+
+It must show `Up`. If it does not, run `mcctl up`, which starts SFTP when there is a user. A `Restarting` status is covered in
+[troubleshooting](troubleshooting.md#problems-outside-mcctls-messages).
+
+**3. Open the tunnel.** On the device, in a terminal that stays open while you use SFTP:
+
+```
+ssh -N -L 2223:127.0.0.1:2222 -i ~/.ssh/id_ed25519_vps deploy@HOST
+```
+
+`-N` runs no shell, only the tunnel. `-L 2223:127.0.0.1:2222` means: a connection to port 2223 on the device goes to port 2222 as seen
+from the host, which is the SFTP container. Replace `HOST` with the host's address, and `~/.ssh/id_ed25519_vps` with the key that logs
+in to the host (not the SFTP key). The local port must be free on the device. Port 2222 is a poor choice on a laptop that also runs a
+local mcctl, because it may already be in use there.
+
+**4. Connect with `sftp`.** In a second terminal on the same machine:
+
+```
+sftp -P 2223 -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new NAME@127.0.0.1
+```
+
+- The user is the server's name (`NAME`), not `deploy`.
+- `-i` is the **private** key whose public key is in `sftp-keys/NAME`. Its public half must match step 1.
+- No password is asked for. A password prompt means the key was not used: check the path after `-i` and its permissions (`chmod 600`).
+- On the first connection, `accept-new` accepts the server's host key. If the key changes later, see
+  [troubleshooting](troubleshooting.md#problems-outside-mcctls-messages).
+
+Inside `sftp`, the user sees one folder, `NAME/`, which is the server's data (world, mods, configs):
+
+```
+ls
+cd NAME
+ls
+put /home/you/local-file.txt remote-name.txt
+get remote-name.txt /home/you/copy.txt
+bye
+```
+
+Use absolute paths on your own side. Remote paths are relative to the folder you are in.
+
+**Windows and WSL.** A tunnel opened in Git Bash or PowerShell listens on Windows' `127.0.0.1`. A tunnel opened in WSL listens on
+WSL's `127.0.0.1`. Programs on one side cannot use a tunnel on the other side (unless WSL's mirrored networking is on). Keys are per side
+too: `~` in Git Bash is `C:\Users\<you>`, and in WSL it is `/home/<you>`. Use one environment for both the tunnel and the client, or copy
+the key to the place the client reads.
+
+**FileZilla (Windows).** FileZilla needs the tunnel from step 3 running on Windows, and the key in a format it accepts:
+
+1. If FileZilla refuses the OpenSSH key, convert it: open PuTTYgen, **Load** the private key, then **Save private key** (a `.ppk`
+   file). Keep the converted key private.
+2. In FileZilla, open **File → Site Manager → New site** and set:
+   - Protocol: **SFTP - SSH File Transfer Protocol**
+   - Host: `127.0.0.1`
+   - Port: `2223`
+   - Logon type: **Key file**
+   - User: `NAME`
+   - Key file: the path of the `.ppk` (or the private key)
+   - Password: leave it empty
+3. Click **Connect** and accept the host key.
+
+**Public mode (no tunnel).** To reach SFTP without a tunnel, set `MCCTL_SFTP_PUBLIC=1` in `config/mcctl.env` and run `mcctl up`. The port
+then listens on every address, and the firewall allows `2222/tcp` (`mcctl firewall plan` shows it). Login is still key only, but the port
+is on the internet and receives scans. Prefer the tunnel unless you need a public port.
+
+**Host keys.** The SFTP server's host keys are kept in the Docker volume `mcctl-sftp-hostkeys` (full name
+`mcctl-sftp_mcctl-sftp-hostkeys`). A recreated container keeps them, so clients do not see a new key. If you remove the volume on
+purpose, every client must forget the old key first: `ssh-keygen -R "[127.0.0.1]:2223"`.
+
 **How it is built.** SFTP is its own compose project, so the router stack keeps exactly one published port (25565). `sftp.compose.yml` in
 `MCCTL_ROOT` is generated from `templates/sftp.compose.yml`; never edit it. It lists, for every user in `sftp-users.conf`, two mounts:
 `servers/NAME/data` at `/home/NAME/NAME` (read-write) and, once a key exists, the key file `sftp-keys/NAME` read-only at
