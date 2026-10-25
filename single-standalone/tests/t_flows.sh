@@ -355,7 +355,7 @@ INS='docker network inspect --format {{range .IPAM.Config}}{{.Subnet}} {{end}} m
 STK="docker compose -p mcctl-stack -f $SB/templates/stack.compose.yml"
 assert_eq "$SS
 $NET
-docker network create --driver bridge --subnet 172.30.0.0/24 --label mcctl.managed=true mcctl_game
+docker network create --driver bridge --subnet 172.30.0.0/24 --aux-address router=172.30.0.2 --label mcctl.managed=true mcctl_game
 $STK up -d --wait
 $SS
 $STK ps -q --status running mc-router

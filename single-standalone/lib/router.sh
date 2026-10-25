@@ -55,7 +55,8 @@ cmd_up() {
     ids=$(docker network ls -q --filter "name=^${GAME_NETWORK}\$") \
         || die "cannot ask Docker ('docker network ls' failed): is the daemon running, and may this user use it? Nothing was created."
     if [[ -z $ids ]]; then
-        docker network create --driver bridge --subnet "$MCCTL_GAME_SUBNET" --label mcctl.managed=true "$GAME_NETWORK" >/dev/null \
+        # the router's address is reserved (--aux-address): Docker never gives it to a game container, even while the router is down
+        docker network create --driver bridge --subnet "$MCCTL_GAME_SUBNET" --aux-address "router=$MCCTL_ROUTER_IP" --label mcctl.managed=true "$GAME_NETWORK" >/dev/null \
             || die "cannot create the network $GAME_NETWORK on $MCCTL_GAME_SUBNET (see above). A subnet that overlaps another Docker network or route is the usual cause: change MCCTL_GAME_SUBNET and MCCTL_ROUTER_IP in config/mcctl.env."
     else
         # the egress rules are written for MCCTL_GAME_SUBNET: a network on another subnet would be left unguarded

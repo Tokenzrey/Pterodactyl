@@ -368,7 +368,7 @@ printf 's1::1000:1000:s1\n' >"$SB/sftp-users.conf"   # one SFTP user: the SFTP s
 m up; assert_eq 0 "$RC" "up: the port is free, the network is new"
 assert_eq "$SSCALL
 docker network ls -q --filter name=^mcctl_game\$
-docker network create --driver bridge --subnet 172.30.0.0/24 --label mcctl.managed=true mcctl_game
+docker network create --driver bridge --subnet 172.30.0.0/24 --aux-address router=172.30.0.2 --label mcctl.managed=true mcctl_game
 docker compose -p mcctl-stack -f $SBSTACK up -d --wait
 $SFTPUP" "$(calls)" "the ordered call log: port check, network look-up, network create, compose up --wait, then the SFTP stack"
 assert_contains "$OUT" "router up" "and it says so"
@@ -461,7 +461,7 @@ assert_contains "$OUT" "docker logs mcctl-egress-guard" "the message says where 
 reset
 export MCCTL_GAME_SUBNET=10.50.0.0/24 MCCTL_ROUTER_IP=10.50.0.2
 m up; assert_eq 0 "$RC" "up with another subnet in the configuration"
-assert_contains "$(calls)" "--subnet 10.50.0.0/24 --label mcctl.managed=true mcctl_game" "the network is created on MCCTL_GAME_SUBNET"
+assert_contains "$(calls)" "--subnet 10.50.0.0/24 --aux-address router=10.50.0.2 --label mcctl.managed=true mcctl_game" "the network is created on MCCTL_GAME_SUBNET, with the router address reserved"
 reset
 export MCCTL_ROUTER_IP=10.99.0.2
 m up; assert_eq 3 "$RC" "a router address outside the subnet: EX_PREFLIGHT from the configuration check"
