@@ -317,6 +317,28 @@ cp "$SB/rules.good" "$FAKE_STATE/iptables.rules"
 healthy; assert_eq 0 $? "(control) all rules back: healthy"
 healthy 10.60.0.0/24 10.60.0.2; rc=$?; ((rc != 0)) && pass "rules for another subnet do not make this one healthy" || fail "rules for another subnet do not make this one healthy"
 
+echo "the healthcheck on the real host: -C cannot match a hashlimit rule (iptables 1.8.10, nf_tables), so the rule is read with -S"
+mkdir -p "$SB/hcbin"
+cat >"$SB/hcbin/iptables" <<'FAKE'
+#!/bin/sh
+# iptables as the WSL host answers it: -C fails for any hashlimit rule; -S prints the chain, here the one hashlimit line in FAKE_HASH
+[ "$1" = "-w" ] && shift 2
+case $1 in
+    -C) for a in "$@"; do [ "$a" = hashlimit ] && exit 1; done; exit 0 ;;
+    -S) [ -n "$FAKE_HASH" ] && printf '%s\n' "$FAKE_HASH"; exit 0 ;;
+esac
+exit 0
+FAKE
+chmod +x "$SB/hcbin/iptables"
+hc_env() {
+    env PATH="$SB/hcbin:$PATH" ROUTER_IP=172.30.0.2 GAME_SUBNET=172.30.0.0/24 CONN_LIMIT=10 RATE=10/second \
+        PRIVATE_RANGES="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10" sh "$SB/health-check.sh"
+}
+REAL_HASH='-A MCCTL-INGRESS -d 172.30.0.2/32 -p tcp -m tcp --dport 25565 -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 10/sec --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-name mcctl-new -j DROP'
+FAKE_HASH=$REAL_HASH hc_env >/dev/null 2>&1; assert_eq 0 $? "healthy with the hashlimit rule as iptables -S prints it"
+FAKE_HASH= hc_env >/dev/null 2>&1; rc=$?; ((rc != 0)) && pass "unhealthy without the hashlimit rule" || fail "unhealthy without the hashlimit rule"
+FAKE_HASH=${REAL_HASH/-d 172.30.0.2\/32/-d 10.60.0.2\/32} hc_env >/dev/null 2>&1; rc=$?; ((rc != 0)) && pass "unhealthy when the hashlimit rule is for another address" || fail "unhealthy when the hashlimit rule is for another address"
+
 echo "the guard fails closed"
 reset_ipt
 echo '-d 100.64.0.0/10 -j DROP' >"$FAKE_STATE/iptables.fail"

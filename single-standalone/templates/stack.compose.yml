@@ -95,7 +95,7 @@ services:
           ipt -C DOCKER-USER -j MCCTL-INGRESS &&
           ipt -C MCCTL-INGRESS -s "$$GAME_SUBNET" -j RETURN &&
           ipt -C MCCTL-INGRESS -d "$$ROUTER_IP" -p tcp --dport 25565 -m conntrack --ctstate NEW -m connlimit --connlimit-above "$$CONN_LIMIT" --connlimit-mask 32 -j DROP &&
-          ipt -C MCCTL-INGRESS -d "$$ROUTER_IP" -p tcp --dport 25565 -m conntrack --ctstate NEW -m hashlimit --hashlimit-above "$$RATE" --hashlimit-mode srcip --hashlimit-name mcctl-new -j DROP &&
+          ipt -S MCCTL-INGRESS | grep -q -- "-d $$ROUTER_IP[/ ].*--hashlimit-name mcctl-new -j DROP" &&
           ipt -C INPUT -s "$$GAME_SUBNET" -m conntrack --ctstate NEW -j DROP
       interval: 10s
       timeout: 5s
