@@ -15,6 +15,8 @@ Settings live in `config/mcctl.env` (copy `config/mcctl.env.example`; the copy i
 | `MCCTL_CF_ZONE_ID` | none | Cloudflare Zone ID of the zone that holds `MCCTL_DOMAIN` (letters and digits only). |
 | `MCCTL_GAME_SUBNET` | `172.30.0.0/24` | Private IPv4 network of the game containers, `/16` to `/29`, no host bits set. |
 | `MCCTL_ROUTER_IP` | `172.30.0.2` | Fixed address of mc-router inside that network: not the network, first (gateway) or broadcast address. |
+| `MCCTL_DOCKER_SOCKET` | `/var/run/docker.sock` | The Docker socket whose group mc-router is given (`group_add`), so that it can reach the API as a non-root user. Change only for a non-default socket. |
+| `MCCTL_DOCKER_GID` | (set by mcctl) | Not a setting: `stack_dc` sets it to the group of `MCCTL_DOCKER_SOCKET` before each compose call. |
 | `MCCTL_CONN_LIMIT` | `10` | Per-source connection limit on 25565 (integer 1 to 65535). |
 | `MCCTL_RATE` | `10/second` | New-connection rate limit per source on 25565 (`N/second`, `N/minute`, `N/hour`). |
 | `MCCTL_SSH_PORTS` | empty | SSH ports to keep open (comma list). When empty, detected from `sshd -T`, `ss`, `$SSH_CONNECTION`. |

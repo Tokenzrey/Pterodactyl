@@ -30,6 +30,7 @@ services:
     cap_drop: [ALL]
     read_only: true
     security_opt: ["no-new-privileges:true"]
+    group_add: ["${MCCTL_DOCKER_GID:?run through mcctl}"]   # the socket's group (lib/router.sh stack_dc): the router's only way in
     mem_limit: 128m
     pids_limit: 128
 

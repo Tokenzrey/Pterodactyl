@@ -1,0 +1,28 @@
+# Ubuntu VM ("VPS") in Docker: QEMU/KVM runs inside the container, the console opens in the browser.
+# Image: qemux/qemu (https://github.com/qemus/qemu). Its README decides the BOOT values and whether HOST_PORTS forwards SSH.
+name: vps
+
+services:
+  ubuntu-vps:
+    image: qemux/qemu
+    container_name: ubuntu-vps
+    restart: unless-stopped
+    stop_grace_period: 60s
+    devices:
+      - /dev/kvm                  # hardware virtualisation. Missing = compose fails; see the README for a slow no-KVM mode
+    cap_add:
+      - NET_ADMIN                 # needed for the VM's user-mode network inside the container
+    ports:
+      - "127.0.0.1:8006:8006"     # web console (noVNC), this machine only
+      - "127.0.0.1:2222:22"       # SSH to the VM, only if HOST_PORTS below forwards port 22
+    environment:
+      BOOT: "ubuntu"              # unverified for the x86 image: check the README for the valid values
+      RAM_SIZE: "6G"              # the laptop has 27.7 GB and WSL is capped at 14 GB (.wslconfig): 12G would push Windows into swap
+      CPU_CORES: "4"
+      DISK_SIZE: "32G"
+      HOST_PORTS: "22"            # unverified: check the README
+    volumes:
+      - vps-storage:/storage      # the VM's disk survives docker compose down
+
+volumes:
+  vps-storage:

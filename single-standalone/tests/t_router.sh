@@ -364,6 +364,7 @@ echo "cmd_up"
 ( cmd_up extra ) >/dev/null 2>&1;   assert_eq 2 $? "cmd_up with an argument: EX_USAGE"
 ( cmd_down extra ) >/dev/null 2>&1; assert_eq 2 $? "cmd_down with an argument: EX_USAGE"
 reset
+printf 's1::1000:1000:s1\n' >"$SB/sftp-users.conf"   # one SFTP user: the SFTP stack starts (with none it does not, see below)
 m up; assert_eq 0 "$RC" "up: the port is free, the network is new"
 assert_eq "$SSCALL
 docker network ls -q --filter name=^mcctl_game\$
@@ -375,12 +376,25 @@ assert_contains "$OUT" "router up" "and it says so"
 reset
 echo abc123 >"$FAKE_STATE/docker.network.ls"
 printf '172.30.0.0/24 \n' >"$FAKE_STATE/docker.network.inspect"
+printf 's1::1000:1000:s1\n' >"$SB/sftp-users.conf"
 m up; assert_eq 0 "$RC" "up: the network exists with the right subnet"
 assert_eq "$SSCALL
 docker network ls -q --filter name=^mcctl_game\$
 docker network inspect --format {{range .IPAM.Config}}{{.Subnet}} {{end}} mcctl_game
 docker compose -p mcctl-stack -f $SBSTACK up -d --wait
 $SFTPUP" "$(calls)" "the ordered call log: no network create"
+
+echo "up with no SFTP user: the SFTP stack is not started; the router gets the socket's group; down without the socket stops"
+reset
+echo abc123 >"$FAKE_STATE/docker.network.ls"
+printf '172.30.0.0/24 \n' >"$FAKE_STATE/docker.network.inspect"
+: >"$SB/sftp-users.conf"
+m up; assert_eq 0 "$RC" "up with no SFTP user: exit 0"
+assert_not_contains "$(calls)" "mcctl-sftp" "no SFTP compose call"
+assert_not_contains "$OUT" "SFTP up on" "and no 'SFTP up' line"
+assert_contains "$(<"$STACK")" 'group_add: ["${MCCTL_DOCKER_GID:?run through mcctl}"]' "the router gets the socket's group through group_add"
+MCCTL_DOCKER_SOCKET=$SB/missing.sock m down; assert_eq 1 "$RC" "down with no Docker socket: exit 1, the message from stack_dc is shown"
+assert_contains "$OUT" "group of the Docker socket" "and it says why"
 
 reset
 echo abc123 >"$FAKE_STATE/docker.network.ls"
@@ -416,6 +430,7 @@ printf '%s\n' "$DP" >"$FAKE_STATE/ss.listen"
 echo cid1 >"$FAKE_STATE/docker.compose.ps.running.mc-router"
 echo abc123 >"$FAKE_STATE/docker.network.ls"
 printf '172.30.0.0/24 \n' >"$FAKE_STATE/docker.network.inspect"
+printf 's1::1000:1000:s1\n' >"$SB/sftp-users.conf"
 m up; assert_eq 0 "$RC" "up: the listener is this stack's own router: allowed"
 assert_eq "$SSCALL
 docker compose -p mcctl-stack -f $SBSTACK ps -q --status running mc-router

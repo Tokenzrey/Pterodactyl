@@ -74,6 +74,8 @@ sandbox() {
         || { echo "FATAL: cannot create the test sandbox under $MCCTL_TEST_BASE_TMP" >&2; exit 99; }
     R=$SB
     mkdir -p "$SB/state" "$SB/tmp" "$SB/home" "$SB/fakebin"
+    # the router's group_add reads the group of the Docker socket: a stand-in file, so no test looks at the host's socket
+    : >"$SB/docker.sock"; export MCCTL_DOCKER_SOCKET=$SB/docker.sock
     cp -r "$REPO/mcctl" "$REPO/lib" "$SB/"
     [[ -d $REPO/templates ]] && cp -r "$REPO/templates" "$SB/"
     chmod +x "$SB/mcctl"

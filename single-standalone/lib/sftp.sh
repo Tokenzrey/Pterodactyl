@@ -90,8 +90,14 @@ sftp_repair() {
     info "SFTP container recreated; SFTP users are disconnected for a few seconds"
 }
 
-# sftp_up: start the SFTP stack (rendering its file first); sftp_down: stop it. For mcctl up and mcctl down.
-sftp_up() { sftp_render && sftp_dc up -d; }
+# sftp_up: start the SFTP stack (rendering its file first) when there is at least one user; sftp_down: stop it. For mcctl up and
+# mcctl down. With no user the container is not started: atmoz/sftp exits at once when users.conf is empty (its entrypoint's grep
+# has no line to copy and set -e stops it).
+sftp_up() {
+    sftp_render || return
+    if [[ -s $(_sftp_users_file) ]]; then sftp_dc up -d
+    else info "SFTP not started: no user yet (a server created with SFTP access adds one)"; fi
+}
 sftp_down() { sftp_render && sftp_dc down; }
 
 # sftp_add_user NAME: add NAME to users.conf (UID/GID 1000:1000, the itzg/minecraft-server user; no password; the directory field is

@@ -357,22 +357,19 @@ assert_eq "$SS
 $NET
 docker network create --driver bridge --subnet 172.30.0.0/24 --label mcctl.managed=true mcctl_game
 $STK up -d --wait
-$SFU
 $SS
 $STK ps -q --status running mc-router
 $NET
 $INS
 $STK up -d --wait
-$SFU
 $STK down
 $SFD
 $SS
 $NET
 $INS
 $STK up -d --wait
-$SFU
 $SS
-$STK ps -q --status running mc-router" "$(calls)" "the ordered call log: the refused up asks the port and the stack and stops there"
+$STK ps -q --status running mc-router" "$(calls)" "the ordered call log: the refused up asks the port and the stack and stops there (no SFTP user here, so no SFTP stack)"
 rm -f "$FAKE_STATE"/ss.* "$FAKE_STATE"/docker.network.* "$FAKE_STATE"/docker.compose.*
 
 echo "flow: start, edit resources with --yes (recreate the whole project)"

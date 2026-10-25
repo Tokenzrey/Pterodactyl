@@ -12,8 +12,14 @@ STACK_PROJECT=mcctl-stack
 GAME_NETWORK=mcctl_game
 STACK_COMPOSE=$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates" 2>/dev/null && pwd -P)/stack.compose.yml
 
-# stack_dc ARGS...: docker compose for the router stack
-stack_dc() { docker compose -p "$STACK_PROJECT" -f "$STACK_COMPOSE" "$@"; }
+# stack_dc ARGS...: docker compose for the router stack. The router runs as a non-root user with no capabilities, so it reaches the
+# Docker socket only through the socket's group: MCCTL_DOCKER_GID is that group, passed to the template's group_add.
+stack_dc() {
+    MCCTL_DOCKER_GID=$(stat -L -c %g -- "${MCCTL_DOCKER_SOCKET:-/var/run/docker.sock}" 2>/dev/null) \
+        || { err "cannot read the group of the Docker socket (${MCCTL_DOCKER_SOCKET:-/var/run/docker.sock}): is Docker running?"; return "$EX_PREFLIGHT"; }
+    export MCCTL_DOCKER_GID
+    docker compose -p "$STACK_PROJECT" -f "$STACK_COMPOSE" "$@"
+}
 
 # router_port_free: 0 when nothing listens on the public port; 1 when something does, printing its `ss -ltnp` line(s) on stdout
 # (the process is named there when this user may see it); 2 when that cannot be found out (no ss, or ss failed: the reason is on
@@ -60,7 +66,7 @@ cmd_up() {
     info "router up: port $ROUTER_PORT, address $MCCTL_ROUTER_IP on $GAME_NETWORK ($MCCTL_GAME_SUBNET); compose reported the egress guard healthy"
     # SFTP is its own project (lib/sftp.sh): started after the router, and a failure there does not undo the router
     sftp_up || die "the router is up, but the SFTP stack did not start (see above). Fix the cause, then run 'mcctl up' again or 'mcctl sftp repair'"
-    info "SFTP up on $(_sftp_bind):2222 (key-only login; MCCTL_SFTP_PUBLIC=1 publishes it on 0.0.0.0)"
+    if [[ -s $(_sftp_users_file) ]]; then info "SFTP up on $(_sftp_bind):2222 (key-only login; MCCTL_SFTP_PUBLIC=1 publishes it on 0.0.0.0)"; fi
 }
 
 # cmd_down: stop the router stack and the SFTP stack. Players connected through the router are disconnected. The game network, the
