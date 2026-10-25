@@ -281,5 +281,19 @@ done
 assert_contains "$(render_server_compose motd-special 2>/dev/null)" '      MOTD: "Cost: $$5 \"VIP\" C:\\games"' "golden motd-special: \$ doubled, \" and \\ escaped"
 assert_not_contains "$(render_server_compose curseforge 2>/dev/null)" "VERSION" "golden curseforge: no VERSION (the pack decides)"
 
+echo "renderer: JAVA picks the image's Java version, and is never an environment entry"
+srv javaed17; printf 'JAVA=17\n' >>"$SB/servers/javaed17/server.env"
+render javaed17
+assert_contains "$OUT" "    image: itzg/minecraft-server:java17" "JAVA=17: the game image is itzg/minecraft-server:java17"
+assert_not_contains "$OUT" "JAVA:" "and JAVA is not an environment entry of the game container"
+srv javaless
+render javaless
+assert_contains "$OUT" "    image: itzg/minecraft-server"$'\n' "no JAVA: the image has no tag (the image default)"
+assert_not_contains "$OUT" "minecraft-server:java" "and no Java tag is written"
+srv javabad; printf 'JAVA=8\n' >>"$SB/servers/javabad/server.env"
+render javabad
+refused "JAVA=8 is refused: exit 3, nothing rendered"
+assert_contains "$ERR" "JAVA is '8', expected 17, 21, 25 or nothing" "and the message names the accepted values"
+
 sandbox_cleanup
 finish

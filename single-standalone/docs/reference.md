@@ -409,6 +409,28 @@ Prints the state of the game container (with its health when the image reports o
 `config:` line (current or pending, see [Settings](#mcctl-set-get-unset-env-apply)), and when it started (only while it runs).
 An unknown server is exit 1.
 
+## mcctl java
+
+```
+mcctl java NAME set 17|21|25|default
+```
+
+Chooses the Java version of the server's image. The image is `itzg/minecraft-server:javaN` for 17, 21 or 25; `default` removes the choice and
+uses the image's default, which is the newest Java (25 at the time of writing).
+
+**Why it matters.** Forge 1.20.1 and most mods of that era run on Java 17. On Java 25 they fail at start with
+`Unsupported class file major version 69`. A server made from an older modpack needs `17`.
+
+```
+mcctl create deceased --modpack-source curseforge --modpack deceasedcraft --modpack-version FILE_ID --accept-eula
+mcctl java deceased set 17
+mcctl start deceased
+```
+
+The value is the structural key `JAVA` in `server.env`. It is not an environment variable of the game container, and `mcctl set` refuses
+it (use `mcctl java`). The change is applied at once: a running server is recreated with the new image, a stopped one is made again
+(still stopped). `clone`, `export` and `import` carry the value.
+
 ## mcctl set, get, unset, env, apply
 
 ```
@@ -467,7 +489,7 @@ A key that `properties` maps (below) but that has no type here is stored as text
 | What | Why |
 |------|-----|
 | a credential: a name ending in `PASSWORD`, `PASSWD`, `SECRET`, `TOKEN` or `_KEY` | a secret as a plain environment value would sit in `compose.yaml` and in `docker inspect`. Put it in a file under `secrets/` and set `KEY_FILE`. |
-| the structural keys `TYPE VERSION MEMORY CPUS EULA HOSTNAME_SLUG BACKUP_ENV_FILE AUTOSTART` | they belong to the server's identity or have their own command: `mcctl edit` for `MEMORY` and `CPUS`, `mcctl autostart` for `AUTOSTART` |
+| the structural keys `TYPE VERSION MEMORY CPUS EULA HOSTNAME_SLUG BACKUP_ENV_FILE AUTOSTART JAVA` | they belong to the server's identity or have their own command: `mcctl edit` for `MEMORY` and `CPUS`, `mcctl autostart` for `AUTOSTART` |
 | the reserved keys `RCON_PORT ENABLE_RCON RCON_PASSWORD_FILE CF_API_KEY_FILE` | `mcctl rcon`, the backup sidecar, `rotate-rcon` and the CurseForge key assume their defaults and files. itzg warns against changing the RCON port. |
 
 ## mcctl motd, icon, resourcepack, autostart

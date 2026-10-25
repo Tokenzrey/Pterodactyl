@@ -3,7 +3,7 @@
 # No credential is a value in this file: each is a file under secrets/, mounted at /run/secrets and named with the _FILE suffix.
 services:
   mc:
-    image: itzg/minecraft-server
+    image: {{IMAGE}}
     container_name: "{{CONTAINER}}"
     restart: {{RESTART}}
     stop_grace_period: 60s

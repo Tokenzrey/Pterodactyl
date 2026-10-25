@@ -342,5 +342,23 @@ for fn in cmd_set cmd_get cmd_unset cmd_env cmd_apply cmd_properties cmd_motd cm
     assert_eq 2 "$rc" "$fn with no arguments: EX_USAGE"
 done
 
+echo "cmd_java (mcctl java): the value is written to server.env and applied; a stopped server is made again, still stopped"
+mk javaless stopped; reset
+m java javaless set 21
+assert_eq 0 "$RC" "mcctl java javaless set 21 exits 0"
+assert_contains "$(<"$SB/servers/javaless/server.env")" "JAVA=21" "server.env has JAVA=21"
+assert_contains "$(<"$SB/servers/javaless/compose.yaml")" "image: itzg/minecraft-server:java21" "compose.yaml uses the Java 21 image"
+assert_contains "$(calls)" "docker compose -p mcctl-javaless" "the server's compose project is run (made again)"
+m java javaless set 9
+assert_eq 2 "$RC" "mcctl java with 9: EX_USAGE"
+assert_contains "$OUT" "JAVA '9' is not offered" "and it says what is offered"
+m java javaless set default
+assert_eq 0 "$RC" "mcctl java default exits 0"
+assert_not_contains "$(<"$SB/servers/javaless/server.env")" "JAVA=" "default removes JAVA from server.env"
+assert_contains "$(<"$SB/servers/javaless/compose.yaml")" "    image: itzg/minecraft-server"$'\n' "and compose.yaml is back to the image default"
+m set javaless JAVA=17
+assert_eq 4 "$RC" "mcctl set refuses JAVA (structural): EX_REFUSED"
+assert_contains "$OUT" "JAVA is structural" "and it names the command to use"
+
 sandbox_cleanup
 finish

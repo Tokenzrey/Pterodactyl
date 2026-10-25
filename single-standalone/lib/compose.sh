@@ -146,7 +146,7 @@ check_server_values() {
 # ---- the renderer ------------------------------------------------------------------------------------------------------------
 
 # SE_STRUCTURAL: the server.env keys mcctl reads for itself. They are never environment entries of the game container.
-SE_STRUCTURAL=" TYPE VERSION MEMORY CPUS EULA HOSTNAME_SLUG BACKUP_ENV_FILE AUTOSTART "
+SE_STRUCTURAL=" TYPE VERSION MEMORY CPUS EULA HOSTNAME_SLUG BACKUP_ENV_FILE AUTOSTART JAVA "
 
 # _is_credential KEY: 0 when KEY looks like a secret, whose value must then be a file (KEY_FILE), never a plain value
 _is_credential() { [[ ${1-} =~ (PASSWORD|PASSWD|SECRET|TOKEN|_KEY)$ ]]; }
@@ -204,6 +204,13 @@ render_server_compose() {
 
     lines=$(kv_lines "$dir/server.env") || return "$EX_PREFLIGHT"
     while IFS= read -r line; do [[ -z $line ]] || se[${line%%=*}]=${line#*=}; done <<<"$lines"
+    # JAVA picks the image's Java major version (itzg/minecraft-server:javaN); empty is the image default. Forge 1.20.1 needs 17.
+    case ${se[JAVA]-} in
+        ''|17|21|25) ;;
+        *) err "server.env: JAVA is ${se[JAVA]@Q}, expected 17, 21, 25 or nothing (mcctl java NAME set 17)"; return "$EX_PREFLIGHT" ;;
+    esac
+    local image=itzg/minecraft-server
+    [[ -z ${se[JAVA]-} ]] || image+=":java${se[JAVA]}"
     local srv_type=${se[TYPE]:-VANILLA} version=${se[VERSION]:-} mem=${se[MEMORY]:-2G} cpus=${se[CPUS]:-2}
     local host=${se[HOSTNAME_SLUG]:-$name} eula=${se[EULA]:-FALSE} benv=${se[BACKUP_ENV_FILE]:-}
 
@@ -282,7 +289,7 @@ render_server_compose() {
     fi
     ((rc == 0)) || return "$rc"
     # mem_limit leaves room above the JVM heap (MEMORY) for metaspace, threads and the OS: heap + 25% + 256 MiB
-    tv=([NAME]="$name" [CONTAINER]="mc-$name" [HOST]="$host" [DOMAIN]="$MCCTL_DOMAIN" [TYPE]="$srv_type"
+    tv=([NAME]="$name" [CONTAINER]="mc-$name" [HOST]="$host" [DOMAIN]="$MCCTL_DOMAIN" [TYPE]="$srv_type" [IMAGE]="$image"
         [VERSION_ENV]="$version_line" [MEMORY]="$mem" [EULA]="$eula" [CPUS]="$cpus" [MEM_LIMIT]="$((mb + mb / 4 + 256))m" [EXTRA_ENV]="$extra" [BACKUP_ENV]="$benv_block"
         [LIST_ENV]="$lblock" [MC_SECRET]="$mc_secret" [TOP_SECRET]="$top_secret" [RESTART]="$restart" [CONFIG_HASH]="$chash")
     # every scalar is escaped; the blocks (EXTRA_ENV, VERSION_ENV, BACKUP_ENV, LIST_ENV, MC_SECRET, TOP_SECRET) were escaped or are fixed text

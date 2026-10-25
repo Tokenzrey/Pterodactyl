@@ -180,6 +180,24 @@ cmd_get() {
     printf '%s\n' "${line#*=}"
 }
 
+# cmd_java NAME set 17|21|25|default: the Java major version of the server's image (itzg/minecraft-server:javaN). Forge 1.20.1 needs 17,
+# and the image's default is the newest Java, so an older modpack must be given 17. The value is the structural key JAVA in server.env,
+# and it is applied like any setting: the containers are recreated if the server runs, or made again (still stopped) if it does not.
+cmd_java() {
+    local name=${1-} act=${2-} v=${3-}
+    (($# == 3)) && [[ $act == set ]] || die "usage: mcctl java NAME set 17|21|25|default" "$EX_USAGE"
+    _need_server "$name"
+    local old
+    old=$(<"$(server_dir "$name")/server.env") || die "cannot read $name's server.env (see above)" "$EX_FAIL"
+    case $v in
+        17|21|25) server_env_set "$name" JAVA "$v" ;;
+        default) server_env_unset "$name" JAVA ;;
+        *) die "JAVA ${v@Q} is not offered: use 17, 21, 25 or default" "$EX_USAGE" ;;
+    esac
+    _env_write_compose "$name" "$old"   # renders compose.yaml; server.env goes back if that fails
+    apply_pending "$name"
+}
+
 # cmd_unset NAME KEY...: remove the keys from server.env. A structural key is refused.
 cmd_unset() {
     local usage="usage: mcctl unset NAME KEY..."
