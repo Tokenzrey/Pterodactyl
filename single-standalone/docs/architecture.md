@@ -1,4 +1,4 @@
-history# Architecture
+# Architecture
 
 How mcctl changes the host, drawn from the code. Each diagram is the order the code runs the steps. Where a step can fail, the text under the diagram says what is left behind.
 
