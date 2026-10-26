@@ -53,6 +53,8 @@ Find the text of the message you see in the first column. The text in backticks 
 | `docker compose stop failed` | Docker failed on a stop | nothing was deleted; check Docker, then run the command again |
 | `docker compose create failed` | Docker failed on `create` | nothing is kept (the undo ran); read the compose output above it, then run `create` again |
 | `has no voice chat config yet` | `mcctl voice NAME set` runs before the mod has written its config | start the server once (`mcctl start NAME`), then run `mcctl voice NAME set PORT` again; nothing was changed |
+| `the offsite copy would fail now` | `mcctl rclone check` cannot reach Google Drive. A test app's token expires after 7 days; the copies stop, the local archives still run | make the Google app production (see [mcctl rclone](reference.md#mcctl-rclone)), then `mcctl rclone install FILE --replace` with a new `rclone config` file, and `mcctl rclone check gdrive` |
+| `no rclone config is installed` | `settings --offsite rclone` or `check` runs before `mcctl rclone install FILE` | install the config first (see [mcctl rclone](reference.md#mcctl-rclone)) |
 | `the router stack is not running` | `mcctl voice NAME set` needs the guard that opens the UDP port | run `mcctl up`, then the command again; nothing was changed |
 | `the files are already written but docker compose up failed` | `apply` stopped after it wrote the files | run the same `apply` again |
 | `SFTP could not be set up` | SFTP failed during `create` | the server was created; fix the cause, then run `mcctl sftp repair` |

@@ -105,13 +105,142 @@ _backup_extract() {
         -v "$data_dir:/data" -w /data alpine:3.20 tar -xzf - --no-same-owner -C /data "$@" <"$arch"
 }
 
-# cmd_backup NAME now|list|restore ID|prune
+# _backup_undo NAME HAD OLD_BENV OLD_ENV: put backup.env (HAD 1: back to OLD_BENV; 0: removed) and server.env (OLD_ENV) as they were, and
+# render compose.yaml from them again. A failure here only warns: what is left is named.
+_backup_undo() {
+    local name=$1 had=$2 old_benv=$3 old_env=$4 dir
+    dir=$(server_dir "$name") || return
+    if ((had)); then
+        printf '%s' "$old_benv" | write_atomic "$dir/backup.env" || warn "$name: backup.env could not be put back as it was (see above)"
+    else
+        rm -f -- "$dir/backup.env" || warn "$name: backup.env could not be removed (see above)"
+    fi
+    printf '%s' "$old_env" | write_atomic "$dir/server.env" || warn "$name: server.env could not be put back as it was (see above)"
+    write_compose "$name" || warn "$name: compose.yaml could not be rendered again (see above): mcctl apply $name once it can"
+}
+
+# _backup_settings NAME [--interval D] [--local-days N] [--offsite none|rclone] [--remote NAME] [--keep-days N] [--bwlimit RATE|off]
+# The schedule and the retention of NAME's backups, written to servers/NAME/backup.env (the keys the sidecar reads), then applied. The
+# archives are always written locally (tar, in backups/); an offsite copy goes to REMOTE:mcctl/NAME after every backup (lib/rclone.sh).
+# With no option it shows the current settings and changes nothing. Every backup runs at its interval whether or not players are online
+# (PAUSE_IF_NO_PLAYERS=false), and not at the sidecar's start (BACKUP_ON_STARTUP=false): a restart must not start a backup while players join.
+_backup_settings() {
+    local name=$1 dir benv_file had=0 old_benv="" old_env tmp re
+    local opt_interval="" opt_local="" opt_offsite="" opt_remote="" opt_keep="" opt_bw=""
+    local iv local_days offsite remote keep bw sec cur_offsite
+    local -A cur=()
+    local -a kv_set=() kv_unset=()
+    dir=$(server_dir "$name") || exit "$EX_USAGE"
+    benv_file=$dir/backup.env
+    shift
+    while (($#)); do
+        (($# >= 2)) || die "$1 needs a value. usage: mcctl backup NAME settings [--interval D] [--local-days N] [--offsite none|rclone] [--remote NAME] [--keep-days N] [--bwlimit RATE|off]" "$EX_USAGE"
+        case $1 in
+            --interval) opt_interval=$2 ;;
+            --local-days) opt_local=$2 ;;
+            --offsite) opt_offsite=$2 ;;
+            --remote) opt_remote=$2 ;;
+            --keep-days) opt_keep=$2 ;;
+            --bwlimit) opt_bw=$2 ;;
+            *) die "unknown option ${1@Q}" "$EX_USAGE" ;;
+        esac
+        shift 2
+    done
+    if [[ -f $benv_file ]]; then
+        had=1
+        kv_read "$benv_file" cur
+        old_benv=$(cat -- "$benv_file"; printf X); old_benv=${old_benv%X}
+    fi
+    cur_offsite=none; [[ -n ${cur[RCLONE_REMOTE]-} ]] && cur_offsite=rclone
+
+    # the values: the option, else the current one, else the default
+    iv=${opt_interval:-${cur[BACKUP_INTERVAL]:-24h}}
+    local_days=${opt_local:-${cur[PRUNE_BACKUPS_DAYS]:-7}}
+    offsite=${opt_offsite:-$cur_offsite}
+    remote=${opt_remote:-${cur[RCLONE_REMOTE]:-gdrive}}
+    keep=${opt_keep:-${cur[RCLONE_KEEP_DAYS]:-7}}
+    bw=${opt_bw:-${cur[RCLONE_BWLIMIT]:-2M}}
+
+    if [[ -z $opt_interval && -z $opt_local && -z $opt_offsite && -z $opt_remote && -z $opt_keep && -z $opt_bw ]]; then
+        info "$name: backups every ${cur[BACKUP_INTERVAL]:-24h} (the sidecar's default is 24h when not set); local archives kept ${cur[PRUNE_BACKUPS_DAYS]:-7} day(s)"
+        if [[ -n ${cur[RCLONE_REMOTE]-} ]]; then
+            info "$name: offsite copy to ${cur[RCLONE_REMOTE]}:${cur[RCLONE_DEST_DIR]:-mcctl/$name}, kept ${cur[RCLONE_KEEP_DAYS]:-7} day(s), upload limit ${cur[RCLONE_BWLIMIT]:-none}"
+        else
+            info "$name: no offsite copy"
+        fi
+        return 0
+    fi
+
+    # -- checks: nothing is changed by any of them
+    [[ $iv =~ ^[0-9]{1,6}[smhd]$ ]] || die "--interval ${iv@Q} is not a duration (like 6h, 30m or 1d)" "$EX_USAGE"
+    case ${iv: -1} in
+        s) sec=$((10#${iv%?})) ;;
+        m) sec=$((10#${iv%?} * 60)) ;;
+        h) sec=$((10#${iv%?} * 3600)) ;;
+        d) sec=$((10#${iv%?} * 86400)) ;;
+    esac
+    ((sec >= 1800 && sec <= 2592000)) || die "--interval ${iv@Q} must be from 30m to 30d" "$EX_USAGE"
+    [[ $local_days =~ ^[0-9]{1,3}$ ]] && ((10#$local_days >= 1 && 10#$local_days <= 365)) \
+        || die "--local-days ${local_days@Q} must be a number of days from 1 to 365" "$EX_USAGE"
+    [[ $offsite == none || $offsite == rclone ]] || die "--offsite ${offsite@Q} is neither none nor rclone" "$EX_USAGE"
+    [[ $keep =~ ^[0-9]{1,3}$ ]] && ((10#$keep >= 1 && 10#$keep <= 365)) \
+        || die "--keep-days ${keep@Q} must be a number of days from 1 to 365" "$EX_USAGE"
+    [[ $bw == off || $bw =~ ^[0-9]{1,4}[KMG]?$ ]] || die "--bwlimit ${bw@Q} is not a rate (like 5M, 500K or off)" "$EX_USAGE"
+    if [[ $offsite == none && ( -n $opt_remote || -n $opt_keep || -n $opt_bw ) ]]; then
+        die "--remote, --keep-days and --bwlimit apply to --offsite rclone" "$EX_USAGE"
+    fi
+    if [[ $offsite == rclone ]]; then
+        _rclone_valid_remote "$remote" || die "--remote ${remote@Q} is not a remote name (letters, digits, - and _)" "$EX_USAGE"
+        _rclone_is_drive "$remote" \
+            || die "${remote@Q} is not a remote of type drive in the installed rclone config (mcctl rclone remotes lists them; mcctl rclone install FILE installs one)" "$EX_REFUSED"
+    fi
+
+    # -- the values to write: set these keys, remove those (the old retention by count included: days are the rule now)
+    kv_set=(BACKUP_METHOD tar BACKUP_INTERVAL "$iv" INITIAL_DELAY 2m BACKUP_ON_STARTUP false PAUSE_IF_NO_PLAYERS false
+            TAR_COMPRESS_PARAMETERS -1 PRUNE_BACKUPS_DAYS "$local_days")
+    kv_unset=(PRUNE_BACKUPS_COUNT)
+    if [[ $offsite == rclone ]]; then
+        kv_set+=(RCLONE_REMOTE "$remote" RCLONE_DEST_DIR "mcctl/$name" RCLONE_KEEP_DAYS "$keep" POST_BACKUP_SCRIPT "$RCLONE_POST_SCRIPT")
+        if [[ $bw == off ]]; then kv_unset+=(RCLONE_BWLIMIT); else kv_set+=(RCLONE_BWLIMIT "$bw"); fi
+    else
+        kv_unset+=(RCLONE_REMOTE RCLONE_DEST_DIR RCLONE_KEEP_DAYS RCLONE_BWLIMIT POST_BACKUP_SCRIPT)
+    fi
+    re=$(printf '%s|' "${kv_unset[@]}"); re=${re%|}
+
+    # -- the writes: backup.env (one new file, the keys mcctl does not manage are kept), then server.env, compose.yaml, the containers
+    tmp=$(mktemp "$dir/.backup.env.XXXXXX") || die "cannot make a temporary file in $dir: nothing was changed" "$EX_FAIL"
+    if ! _env_put_body "$benv_file" "${kv_set[@]}" >"$tmp" || ! sed -i -E "/^(${re})=/d" "$tmp"; then
+        rm -f -- "$tmp"; die "cannot write the new backup.env (see above): nothing was changed" "$EX_FAIL"
+    fi
+    if ! write_atomic "$benv_file" cat -- "$tmp"; then
+        rm -f -- "$tmp"; die "cannot write $benv_file (see above): nothing was changed" "$EX_FAIL"
+    fi
+    rm -f -- "$tmp"
+    old_env=$(cat -- "$dir/server.env"; printf X); old_env=${old_env%X}
+    if ! server_env_set "$name" BACKUP_ENV_FILE backup.env; then
+        _backup_undo "$name" "$had" "$old_benv" "$old_env"; die "cannot write $dir/server.env (see above): nothing was changed" "$EX_FAIL"
+    fi
+    if ! write_compose "$name"; then
+        _backup_undo "$name" "$had" "$old_benv" "$old_env"
+        die "cannot render $dir/compose.yaml (see above): backup.env and server.env are as they were" "$EX_FAIL"
+    fi
+    if [[ $offsite == rclone ]]; then
+        info "$name: backups every $iv, written locally for $local_days day(s), then copied to $remote:mcctl/$name for $keep day(s)"
+    else
+        info "$name: backups every $iv, written locally for $local_days day(s); no offsite copy"
+    fi
+    apply_pending "$name"
+}
+
+# cmd_backup NAME now|list|restore ID|prune|settings
 cmd_backup() {
-    local usage="usage: mcctl backup NAME now|list|restore ID|prune   (restore asks --yes unless MCCTL_YES=1)"
+    local usage="usage: mcctl backup NAME now|list|restore ID|prune|settings [...]   (restore asks --yes unless MCCTL_YES=1)"
     local name=${1-} sub=${2-}
     [[ -n $name && -n $sub ]] || die "$usage" "$EX_USAGE"
     _need_server "$name"
     case $sub in
+        settings)
+            _backup_settings "$name" "${@:3}" ;;
         now)
             local st c
             st=$(_backup_sidecar_state "$name")

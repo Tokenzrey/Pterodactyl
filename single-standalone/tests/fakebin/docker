@@ -63,7 +63,7 @@ if [[ ${1-} == run ]]; then
         case $1 in
             -i|--interactive) keep=1 ;;
             -v|--volume) vol=${2-}; shift ;;
-            --network|--user|-w|--workdir|--cap-drop|--cap-add|--security-opt|--tmpfs|--pids-limit|--memory) shift ;;
+            --network|--user|-w|--workdir|--cap-drop|--cap-add|--security-opt|--tmpfs|--pids-limit|--memory|--entrypoint|-e|--env) shift ;;
             -*) ;;
             *) break ;;
         esac
@@ -87,7 +87,11 @@ if [[ ${1-} == run ]]; then
         mhost=${BASH_REMATCH[1]}
         if [[ ${2-} == sh && ${4-} == *chown* ]]; then exit 0; fi
         case ${2-} in
-            tar|rm|cat)
+            sh)
+                # a shell script of the helper (lib/data.sh): its /m paths are the mounted folder on this host
+                script=${4-}; script=${script//\/m\//"$mhost"/}
+                exec sh -c "$script" ;;
+            tar|rm|cat|awk)
                 cmd=$2; shift 2; tr=()
                 for t in "$@"; do
                     case $t in /m) tr+=("$mhost") ;; /m/*) tr+=("$mhost${t#/m}") ;; *) tr+=("$t") ;; esac

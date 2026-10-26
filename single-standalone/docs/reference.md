@@ -1133,16 +1133,41 @@ another user.
 
 ```
 mcctl backup NAME now|list|restore ID|prune
+mcctl backup NAME settings [--interval D] [--local-days N] [--offsite none|rclone] [--remote NAME] [--keep-days N] [--bwlimit RATE|off]
 ```
 
-Backups are archives in `backups/`. The sidecar (`itzg/mc-backup`) writes them on its schedule (`BACKUP_INTERVAL`, from `create --backup-interval`), and `now` writes one at once.
+Backups are archives in `backups/`. The sidecar (`itzg/mc-backup`) writes them on its schedule (`BACKUP_INTERVAL`), and `now` writes one at once.
 
+- `settings` sets the schedule and the retention in `backup.env` and applies them (the containers are made again, a running server asks first, as with `set --apply`). With no option it shows the current settings and changes nothing. `--interval` is a duration from `30m` to `30d` (like `6h`). `--local-days` is how long the local archives are kept (1 to 365). `--offsite rclone` also copies every new archive to Google Drive (see [mcctl rclone](#mcctl-rclone)); `--remote` names the rclone remote, `--keep-days` how long its copies are kept, `--bwlimit` the upload speed (`5M` by default, or `off`). Every backup runs at its interval, with players online or not, and not when the sidecar starts: a restart does not start a backup while players join. The sidecar gets one CPU at most and 512 MiB, so a backup does not compete with the game. The world is paused for saves (`save-off`) while tar reads it, which is the one visible cost: `gzip -1` keeps it short. `PRUNE_BACKUPS_COUNT`, the older count-based retention, is removed by `settings`: the days are the rule now.
 - `now` runs `backup now` in the sidecar (`docker exec mc-NAME-backup backup now`). The server must be running, because the sidecar must be running.
 - `list` prints the archives in `backups/`, newest first. With none it prints `no backups yet for NAME`.
 - `restore ID` replaces `data/` with the archive `ID`, a file name in `backups/`. The server must be stopped. The archive is read with `tar -tzf`; its members must be regular files and folders with no absolute path and no `..`; its layout must be all under one top-level `data/`, or the members as they are in `data/`. After the confirm, the current `data/` is moved to `data.pre-restore-UTC`, and the archive is extracted as the game's UID (`MCCTL_UID`, default 1000). The command prints both paths. `--yes` or `MCCTL_YES=1` answers the confirm.
 - `prune` keeps the newest `PRUNE_BACKUPS_COUNT` archives (default 7, from `backup.env`) and deletes the rest. Every archive needs a UTC timestamp in its name; if one has none, nothing is deleted.
 
-What is refused: `now` on a stopped server (`is not running`, exit 1); `restore` on a running server (`is running: stop it first`, exit 4); an archive with unsafe members (`has unsafe members`, exit 4, nothing changed); an `ID` with a `/` or `..` (`invalid archive id`, exit 2); `prune` with an archive that has no timestamp (exit 4, nothing deleted).
+What is refused: `now` on a stopped server (`is not running`, exit 1); `restore` on a running server (`is running: stop it first`, exit 4); an archive with unsafe members (`has unsafe members`, exit 4, nothing changed); an `ID` with a `/` or `..` (`invalid archive id`, exit 2); `prune` with an archive that has no timestamp (exit 4, nothing deleted); `settings` with a bad value (exit 2) or an offsite remote that is not a drive in the installed config (exit 4), always with nothing changed.
+
+**Why tar and not the image's rclone method.** The image can upload with rclone itself (`BACKUP_METHOD=rclone`), but it deletes the local archive right after the upload: if Google Drive is unreachable, the backup is gone. So the archive is always written locally by tar, and the upload runs after it (`POST_BACKUP_SCRIPT`). A failed upload leaves the archive in `backups/`, and the next backup uploads it again.
+
+## mcctl rclone
+
+```
+mcctl rclone install FILE [--replace]
+mcctl rclone remotes
+mcctl rclone check REMOTE
+```
+
+Offsite copies go to a Google Drive, or to any rclone remote of type `drive`. The operator makes the remote once, with rclone, on a machine that has a browser; mcctl keeps the resulting config for all servers:
+
+1. On your machine: `rclone config`, a new remote, name `gdrive`, type `drive`. For the scope, choose `drive.file` (access only to the files rclone creates, not to the rest of the Drive). Use your own Google OAuth client, and put the app in production status: with a test app, Google expires the token after 7 days and the copies stop without warning (see [troubleshooting](troubleshooting.md)).
+2. Copy the file that `rclone config file` names to the VPS, then run `mcctl rclone install FILE` there. `install` checks the file (a regular file of at most 64 KiB, with a `drive` remote) and puts it in `secrets/rclone/` as a folder owned by the game's user (mode 700), with `rclone.conf` inside (mode 600). The host user cannot read it back, and it is not printed: `remotes` shows only names and types. Delete the file you copied: it holds the token.
+3. `mcctl rclone check gdrive` asks Google Drive, as the game's user, through the sidecar's image: it reports the free space, or the error rclone gives.
+4. `mcctl backup NAME settings --offsite rclone --remote gdrive --interval 6h`.
+
+The token refreshes by itself: rclone writes the new one into the folder, which is why the folder, not one file, is mounted (at `/config/rclone` in the sidecar, and only for servers whose `backup.env` names a remote). A server that names a remote while no config is installed does not render: nothing is started without its copy.
+
+`--replace` replaces the installed config (the old folder is removed through the helper, the new one moved in). The backups use whatever is installed when they run.
+
+What is refused: a file that is a link, empty, over 64 KiB, without a `[remote]`, or without a `drive` remote (exit 4, nothing written); an install over an existing config without `--replace` (exit 4); `check` of a remote that is not a drive (exit 4) or that cannot be reached (exit 1, with rclone's message).
 
 ## mcctl modpack
 

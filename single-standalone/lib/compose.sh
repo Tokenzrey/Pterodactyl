@@ -196,7 +196,7 @@ _list_block() {
 # written as a plain environment value).
 render_server_compose() {
     local name=${1-} chash=${2-} dir lines mlines line k v mb rc=0 extra="" benv_block="" version_line="" cf=0 cf_file=0 mc_secret="" top_secret="" restart=unless-stopped
-    local lf b lblock=""
+    local lf b lblock="" bmounts="" rclone_on=0
     local -A se=() tv=() used=([EULA]=1 [TYPE]=1 [VERSION]=1 [MEMORY]=1 [RCON_PASSWORD_FILE]=1)
     dir=$(server_dir "$name") || return
     [[ -n ${MCCTL_DOMAIN:-} ]] || { err "MCCTL_DOMAIN is not set: the router label needs it (see config/mcctl.env.example)"; return "$EX_PREFLIGHT"; }
@@ -282,6 +282,7 @@ render_server_compose() {
             while IFS= read -r line; do
                 [[ -n $line ]] || continue
                 benv_k=${line%%=*} benv_v=${line#*=}
+                [[ $benv_k != RCLONE_REMOTE ]] || rclone_on=1
                 if [[ $benv_k =~ (PASSWORD|PASSWD|SECRET|TOKEN|_KEY)$ ]]; then
                     err "backup.env: $benv_k looks like a credential; a credential is never a plain value. Put it in a file under secrets/ and set ${benv_k}_FILE"
                     return "$EX_REFUSED"
@@ -293,11 +294,21 @@ render_server_compose() {
             done <<<"$benv_lines"
         fi
     fi
+    # an offsite copy (lib/rclone.sh) needs the installed rclone config: the sidecar gets its folder, and only when the config is there
+    # (a bind mount of a missing folder would make Docker create it as root)
+    if ((rclone_on)); then
+        if [[ -f $MCCTL_ROOT/secrets/rclone/rclone.conf ]]; then
+            bmounts="      - ../../secrets/rclone:/config/rclone"
+        else
+            err "backup.env: RCLONE_REMOTE is set, but no rclone config is installed: mcctl rclone install FILE"; rc=$EX_PREFLIGHT
+        fi
+    fi
     ((rc == 0)) || return "$rc"
     # mem_limit leaves room above the JVM heap (MEMORY) for metaspace, threads and the OS: heap + 25% + 256 MiB
     tv=([NAME]="$name" [CONTAINER]="mc-$name" [HOST]="$host" [DOMAIN]="$MCCTL_DOMAIN" [TYPE]="$srv_type" [IMAGE]="$image"
         [VERSION_ENV]="$version_line" [MEMORY]="$mem" [EULA]="$eula" [CPUS]="$cpus" [MEM_LIMIT]="$((mb + mb / 4 + 256))m" [EXTRA_ENV]="$extra" [BACKUP_ENV]="$benv_block"
-        [LIST_ENV]="$lblock" [MC_SECRET]="$mc_secret" [TOP_SECRET]="$top_secret" [RESTART]="$restart" [CONFIG_HASH]="$chash" [VOICE_PORTS]="$voice_block")
+        [LIST_ENV]="$lblock" [MC_SECRET]="$mc_secret" [TOP_SECRET]="$top_secret" [RESTART]="$restart" [CONFIG_HASH]="$chash" [VOICE_PORTS]="$voice_block"
+        [BACKUP_MOUNTS]="$bmounts")
     # every scalar is escaped; the blocks (EXTRA_ENV, VERSION_ENV, BACKUP_ENV, LIST_ENV, MC_SECRET, TOP_SECRET) were escaped or are fixed text
     for k in NAME CONTAINER HOST DOMAIN TYPE MEMORY EULA; do
         tv[$k]=$(compose_escape "${tv[$k]}") || return "$EX_REFUSED"

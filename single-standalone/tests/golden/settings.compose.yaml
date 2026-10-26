@@ -42,6 +42,9 @@ services:
     image: itzg/mc-backup
     container_name: "mc-settings-backup"
     restart: "no"
+    # the sidecar must not compete with the game: one CPU at most (gzip -1 of a world takes a minute), 512 MiB (tar streams the files)
+    cpus: 1
+    mem_limit: 512m
     logging:
       driver: json-file
       options:
