@@ -101,6 +101,18 @@ _give_to_game() {
         || { err "cannot give ${path@Q} to UID $uid (see above)"; return "$EX_FAIL"; }
 }
 
+# _give_to_group PATH MODE: PATH belongs to the game's user and to this user's own group, with MODE (octal). This user can then see and
+# read PATH, but not write it: the game's user does. For the rclone config folder (lib/rclone.sh), which mcctl must check from the host.
+# The order matters: a folder given away first can no longer be looked into from the host, so its files are given first.
+_give_to_group() {
+    local path=$1 mode=$2 uid gid
+    uid=$(game_uid) || exit "$EX_PREFLIGHT"
+    gid=$(id -g) || { err "cannot read this user's group"; return "$EX_FAIL"; }
+    [[ $mode =~ ^[0-7]{3,4}$ ]] || { err "${mode@Q} is not an octal mode"; return "$EX_FAIL"; }
+    _root_docker rw "$path" "CHOWN FOWNER" sh -c 'chown -- "$1:$2" /m && chmod "$3" /m && [ "$(stat -c %u /m)" = "$1" ]' sh "$uid" "$gid" "$mode" \
+        || { err "cannot give ${path@Q} to UID $uid and group $gid (see above)"; return "$EX_FAIL"; }
+}
+
 # _confine NAME PATH: 0 when PATH resolves inside data/ in the helper. A missing last part is fine (put and mkdir name paths that do
 # not exist yet). A symbolic link that leads out of data/ is refused before any read or write.
 _confine() {

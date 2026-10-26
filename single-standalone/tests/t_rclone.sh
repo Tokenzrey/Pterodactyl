@@ -69,6 +69,11 @@ assert_not_contains "$OUT" "$TOKEN_MARK" "the token is in no output"
 assert_contains "$OUT" "delete" "and it says to delete the source file: it holds the token"
 assert_file "$GOOD" "the source file is not changed or removed by mcctl"
 assert_contains "$(calls)" "sh -c chown" "the copy is given to the game's user (CHOWN, through a helper)"
+assert_contains "$(calls)" 'chmod "$3" /m' "with this user's group and a mode (the host can see and read it, not write it)"
+# the file is given first: once the folder is the game's, the host cannot look inside it to give the file (a live bug, fixed here)
+fl=$(calls | grep -n 'rclone.conf:/m:rw' | head -n 1 | cut -d: -f1)
+dl=$(calls | grep -n '\.rclone-new:/m:rw' | head -n 1 | cut -d: -f1)
+[[ -n $fl && -n $dl ]] && ((fl < dl)) && pass "the file is given before its folder" || fail "the file is given before its folder" "$fl / $dl"
 m rclone install "$GOOD"; assert_eq 4 "$RC" "a second install without --replace: EX_REFUSED"
 assert_contains "$OUT" "add --replace" "and it names the option"
 printf '[new]\ntype = drive\n' >"$SB/new.conf"

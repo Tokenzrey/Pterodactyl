@@ -9,9 +9,10 @@
 # archive where it was.
 #
 # The rclone.conf holds the OAuth token: one file for all servers, in secrets/rclone/. That is a folder, owned by the game's user
-# (UID 1000), mode 700, with rclone.conf inside, mode 600. rclone writes a refreshed token back into it, so it must be a writable
-# folder (rename inside it), not a single file mounted on its own. The sidecar gets it at /config/rclone (XDG_CONFIG_HOME=/config,
-# the image's rclone reads /config/rclone/rclone.conf) only when its backup.env names a remote (lib/compose.sh).
+# (UID 1000) with this user's group, mode 750, and rclone.conf inside, mode 640. The game's user writes it (rclone writes a refreshed
+# token back into it, so it must be a writable folder, not a single file mounted on its own); this user can see it and read it, but
+# not write it. The sidecar gets it at /config/rclone (XDG_CONFIG_HOME=/config, the image's rclone reads /config/rclone/rclone.conf)
+# only when its backup.env names a remote (lib/compose.sh).
 #
 # Only names and types ever leave the config: no token is printed, logged or put in an argument.
 
@@ -96,7 +97,8 @@ _rclone_install() {
         rm -f -- "$staging/rclone.conf"; rmdir -- "$staging" 2>/dev/null
         die "cannot copy ${file@Q} into $staging (see above): nothing was changed" "$EX_FAIL"
     fi
-    if ! _give_to_game "$staging" || ! _give_to_game "$staging/rclone.conf"; then
+    # the file first, then the folder: once the folder is the game's, this user cannot look inside it to give the file away
+    if ! _give_to_group "$staging/rclone.conf" 640 || ! _give_to_group "$staging" 750; then
         _rclone_discard_staging
         die "cannot give the copy to the game's user (see above): nothing was changed" "$EX_FAIL"
     fi
